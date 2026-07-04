@@ -40,6 +40,15 @@ struct LatestSlotTests {
         #expect(value == 7)
     }
 
+    @Test func cancelledParkedTakeReturnsNil() async {
+        let slot = LatestSlot<Int>()
+        let task = Task { await slot.take() }
+        try? await Task.sleep(for: .milliseconds(20))   // let the consumer park
+        task.cancel()
+        let value = await task.value
+        #expect(value == nil)
+    }
+
     @Test func floodedProducerNeverGrowsAndConsumerSeesLatest() async {
         let slot = LatestSlot<Int>()
         // Producer pushes 1000 values without ever suspending on a full buffer: memory stays

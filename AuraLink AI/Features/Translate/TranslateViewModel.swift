@@ -40,7 +40,7 @@ final class TranslateViewModel {
             guard let self else { return }
             let slot = pipeline.output
             while !Task.isCancelled {
-                let latest = await slot.take()
+                guard let latest = await slot.take() else { break }
                 self.caption = latest
             }
         }

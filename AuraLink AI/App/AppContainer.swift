@@ -15,6 +15,7 @@ final class AppContainer {
 
     let tier: CapabilityTier
     let translateViewModel: TranslateViewModel
+    let captureDiagnosticsViewModel: CaptureDiagnosticsViewModel
 
     init() {
         let rung = CapabilityProbe.detectRung()
@@ -25,5 +26,11 @@ final class AppContainer {
         // capture → vision → fusion → inference graph without touching the view/view-model.
         let pipeline = MockCaptionPipeline(tier: tier)
         self.translateViewModel = TranslateViewModel(pipeline: pipeline, tier: tier)
+
+        // Phase 1: real capture layer, exercised via the on-device diagnostics self-test until the
+        // Phase 2 vision front-end consumes these frames for translation.
+        let capture = CaptureActor()   // defaults to the front camera (self-signing)
+        let audio = AudioActor()
+        self.captureDiagnosticsViewModel = CaptureDiagnosticsViewModel(capture: capture, audio: audio)
     }
 }

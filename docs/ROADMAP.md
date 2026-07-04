@@ -19,13 +19,20 @@ Locked design decisions (see also project memory):
   green (latest-wins, bounded memory, parked-consumer resume, flood-without-growth).
 - **Remaining before Phase 1:** Thread Sanitizer clean on a 60 s mock soak (device task).
 
-## Phase 1 — Capture layer
-- **Build:** `CaptureActor` (`AVCaptureSession`, video data output 60fps + `alwaysDiscardsLateVideoFrames`,
-  custom `SerialExecutor`), `AVAudioEngine` tap → PCM ring buffer, `CVPixelBufferPool`,
-  `autoreleasepool` per callback. Real `FrameToken`. Add `LatestSlot` cancellation support.
-- **APIs:** AVFoundation, CoreMedia, AVAudioEngine.
-- **Gate:** 60fps sustained (Instruments); drop-count rises under artificial consumer stall;
-  Allocations flat over 5 min; audio ring wrap-around unit test (no torn reads).
+## Phase 1 — Capture layer  ✅ DONE (device-measured gates pending)
+- **Built:** `CaptureActor` (`AVCaptureSession`, video data output 60fps + `alwaysDiscardsLateVideoFrames`,
+  custom `DispatchQueueExecutor` serial executor, `.bufferingNewest(1)` frame stream), real
+  `FrameToken`, `VideoOutputDelegate` (nonisolated, `autoreleasepool` per callback, drop counting),
+  `AudioActor` + lock-free SPSC `AudioRingBuffer`, `CaptureAuthorization` (camera + mic),
+  `FrameProducing` seam, `LatestSlot` cancellation support. Info.plist usage strings + portrait lock.
+  On-device `CaptureDiagnostics` self-test (fps / delivered / dropped / audio samples).
+- **APIs:** AVFoundation, CoreMedia, AVAudioEngine, Synchronization (`Atomic`).
+- **Gate — code (met):** zero-warning Swift 6 build; `AudioRingBufferTests` green (round-trip,
+  wrap-around, drop-when-full, partial read, total-written); `LatestSlot` cancellation test green.
+- **Gate — device (pending, run via the Diagnostics screen + Instruments):** 60fps sustained;
+  drop-count rises under artificial consumer stall; Allocations flat over 5 min.
+- **Deferred to Phase 2:** `CVPixelBufferPool` for intermediate render targets (only needed once
+  the vision stage produces derived buffers; the camera already vends pooled buffers).
 
 ## Phase 2 — Pose front-end (LONG POLE)
 - **Build:** `VisionActor` — `VNDetectHumanHandPoseRequest` + body pose; Metal preprocessing

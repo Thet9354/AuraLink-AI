@@ -74,9 +74,19 @@ correct real-time behavior. Verified by `LatestSlotTests`.
 
 Every value crossing an actor boundary is `Sendable`. `CVPixelBuffer`/`CMSampleBuffer` are not
 `Sendable` and must not be copied (a 1080p frame at 60fps is a memory-bandwidth catastrophe).
-The **single audited `@unchecked Sendable`** in the system is `FrameToken`: a retained
-`CVPixelBuffer` with single-ownership-transfer-by-handoff semantics (moved via the latest-slot
-channel, never aliased). Everything else is a value-type snapshot.
+
+There are exactly **three audited `@unchecked Sendable` boundaries** in the system, all at the
+hardware edge, each documented in-file with its justification:
+
+1. `FrameToken` — a retained `CVPixelBuffer` with single-ownership-transfer-by-handoff semantics
+   (moved via the latest-value channel, never aliased).
+2. `VideoOutputDelegate` — an `NSObject` (not `Sendable`) with a `seq` counter confined to the
+   single serial capture delegate queue AVFoundation invokes it on.
+3. `AudioRingBuffer` — a lock-free SPSC ring over a manually managed buffer; safety rests on the
+   single-producer/single-consumer contract plus acquire/release atomics.
+
+Everything else crossing a boundary is a value-type snapshot or an `Atomic`-backed `Sendable` type
+(e.g. `CaptureCounters`).
 
 ## Memory strategy (allocation-free hot loop)
 

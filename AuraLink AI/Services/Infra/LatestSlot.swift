@@ -24,7 +24,7 @@ import Foundation
 actor LatestSlot<Element: Sendable> {
 
     private var stored: Element?
-    private var waiter: CheckedContinuation<Element, Never>?
+    private var waiter: CheckedContinuation<Element?, Never>?
 
     init() {}
 
@@ -40,26 +40,40 @@ actor LatestSlot<Element: Sendable> {
         }
     }
 
-    /// Take the freshest stored value, or suspend until one is produced.
+    /// Take the freshest stored value, or suspend until one is produced. Returns `nil` if the
+    /// awaiting task is cancelled while parked, so a consumer loop can exit cleanly.
     ///
     /// Single-consumer by contract: parking a second consumer while one is already parked is a
     /// programming error (asserted in debug). The awaiting task is suspended cooperatively — the
     /// underlying thread (including the main thread, if the caller is `@MainActor`) is not blocked.
-    func take() async -> Element {
+    func take() async -> Element? {
         if let value = stored {
             stored = nil
             return value
         }
-        return await withCheckedContinuation { continuation in
-            assert(waiter == nil, "LatestSlot supports a single consumer at a time")
-            waiter = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Element?, Never>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                assert(waiter == nil, "LatestSlot supports a single consumer at a time")
+                waiter = continuation
+            }
+        } onCancel: {
+            Task { await self.resumeWaiterWithNil() }
         }
     }
 
     /// Whether the slot currently holds an un-taken value. Primarily for tests and diagnostics.
     var isEmpty: Bool { stored == nil }
 
-    // NOTE (Phase 1): add cancellation support via `withTaskCancellationHandler` so a cancelled
-    // consumer resumes and clears `waiter`. Not required for the Phase 0 mock loop, which never
-    // cancels mid-`take`.
+    /// Resume a parked consumer with `nil` on cancellation. A concurrent `put` and this call are
+    /// serialized by the actor, so whichever runs first clears `waiter` and the other is a no-op.
+    private func resumeWaiterWithNil() {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: nil)
+        }
+    }
 }

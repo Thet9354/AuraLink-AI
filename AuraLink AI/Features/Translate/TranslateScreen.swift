@@ -11,9 +11,12 @@ import SwiftUI
 
 struct TranslateScreen: View {
     @State private var model: TranslateViewModel
+    @State private var showingDiagnostics = false
+    private let diagnostics: CaptureDiagnosticsViewModel
 
-    init(model: TranslateViewModel) {
+    init(model: TranslateViewModel, diagnostics: CaptureDiagnosticsViewModel) {
         _model = State(initialValue: model)
+        self.diagnostics = diagnostics
     }
 
     var body: some View {
@@ -29,6 +32,9 @@ struct TranslateScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
         .onDisappear { model.stop() }
+        .sheet(isPresented: $showingDiagnostics) {
+            CaptureDiagnosticsView(model: diagnostics)
+        }
     }
 
     private var header: some View {
@@ -42,6 +48,12 @@ struct TranslateScreen: View {
                 .padding(.vertical, 4)
                 .background(.quaternary, in: Capsule())
                 .accessibilityLabel("Device capability tier \(model.tier.badge)")
+            Button {
+                showingDiagnostics = true
+            } label: {
+                Image(systemName: "stethoscope")
+            }
+            .accessibilityLabel("Capture diagnostics")
         }
     }
 
@@ -135,5 +147,6 @@ private struct FlowText: View {
 #Preview {
     let tier = CapabilityTier.baseline(for: .a17plus)
     let vm = TranslateViewModel(pipeline: MockCaptionPipeline(tier: tier), tier: tier)
-    return TranslateScreen(model: vm)
+    let diagnostics = CaptureDiagnosticsViewModel(capture: CaptureActor(), audio: AudioActor())
+    return TranslateScreen(model: vm, diagnostics: diagnostics)
 }
