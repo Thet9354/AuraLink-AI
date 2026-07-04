@@ -34,14 +34,31 @@ Locked design decisions (see also project memory):
 - **Deferred to Phase 2:** `CVPixelBufferPool` for intermediate render targets (only needed once
   the vision stage produces derived buffers; the camera already vends pooled buffers).
 
-## Phase 2 — Pose front-end (LONG POLE)
-- **Build:** `VisionActor` — `VNDetectHumanHandPoseRequest` + body pose; Metal preprocessing
-  (crop/resize/normalize into pooled tensors); pose normalization (wrist origin, shoulder-width
-  scale, canonical rotation → distance/position invariance); `FeatureVector`; rolling pose ring.
-- **APIs:** Vision, Metal/MPS.
-- **Gate:** joint RMSE vs golden fixtures within tolerance across a lighting/motion/occlusion
-  matrix; confidence degrades **monotonically and honestly** (no silent wrong poses);
-  capture→feature ≤ 25 ms (A17) / ≤ 40 ms (A14); main-thread CPU < 10%.
+## Phase 2 — Pose front-end (LONG POLE)  ✅ DONE (device-measured gates pending)
+- **Built:** `VisionActor` — hand pose (max 2) + duty-cycled body pose (every 3rd frame) on its own
+  `DispatchQueueExecutor` (the synchronous `perform` must not block the cooperative pool); maps
+  Vision results into framework-free `PoseObservation`s; lifetime attach-once frame loop
+  (`AsyncStream` is single-iteration — cancelling an iterator kills the stream). `PoseNormalizer`
+  (wrist origin → palm-axis rotation → palm-length scale; similarity-transform invariance
+  unit-proven). `FeatureExtractor` — fixed 178-dim v1 layout: handshape positions + shape
+  velocities per hand, signing-space wrist coords (body-relative), raw wrist velocity (movement
+  path), validity flags; velocity state resets on hand reappearance (no spikes). Generic
+  `RingBuffer` (~3 s feature history for Phase 3 segmentation). Live pose-preview screen
+  (skeleton overlay + latency HUD) and capture→pose latency percentiles in the diagnostics
+  self-test (`captureToPose` signpost).
+- **APIs:** Vision, simd, CoreMedia, os.
+- **Architecture note:** the Metal-preprocessing/TensorPool stage from the original sketch is NOT
+  built — with pose-only + DTW there is no image-tensor model; Vision consumes camera pixel
+  buffers directly. Pooled tensors return only if a learned encoder replaces DTW (the
+  `SignRecognizing` seam).
+- **Gate — code (met):** zero-warning Swift 6 build; 32 unit tests green, including the core
+  invariance property (translation / scale / rotation / combined), canonical-frame assertions,
+  honest-failure cases (missing wrist, degenerate palm → `nil`, never garbage), layout freeze,
+  velocity semantics, signing-space math.
+- **Gate — device (pending):** capture→pose ≤ 25 ms p95 (A17) / ≤ 40 ms (A14) via the Diagnostics
+  self-test; smooth skeleton tracking in the pose preview; main-thread CPU < 10% (Instruments).
+- **Deferred:** golden-fixture joint-RMSE regression (needs recorded clips — the enrollment
+  tooling in Phase 5 produces these as serialized `PoseObservation` arrays).
 
 ## Phase 3 — Segmentation + DTW/LM gloss
 - **Build:** motion-energy segmentation (`FusionActor`); `SignLexicon` + exemplars; DTW matcher

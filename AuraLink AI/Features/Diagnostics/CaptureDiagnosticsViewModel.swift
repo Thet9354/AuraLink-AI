@@ -2,10 +2,10 @@
 //  CaptureDiagnosticsViewModel.swift
 //  AuraLink AI
 //
-//  Drives an on-device self-test for the Phase 1 capture gate: run capture for a few seconds,
-//  drain frames at full speed, and report measured video fps, delivered/dropped counts, and audio
-//  samples captured. The camera is unavailable in the simulator, so this reports an error there —
-//  it is meant to be run on a physical device.
+//  Drives an on-device self-test for the Phase 1/2 gates: run capture + vision for a few seconds
+//  and report measured video fps, delivered/dropped counts, audio samples, and capture→pose
+//  latency percentiles. The camera is unavailable in the simulator, so this reports an error
+//  there — it is meant to be run on a physical device.
 //
 
 import Foundation
@@ -21,6 +21,7 @@ final class CaptureDiagnosticsViewModel {
         var dropped: Int
         var audioSamples: Int
         var seconds: Double
+        var vision: VisionStats
     }
 
     private(set) var isRunning = false
@@ -29,10 +30,12 @@ final class CaptureDiagnosticsViewModel {
 
     private let capture: CaptureActor
     private let audio: AudioActor
+    private let vision: VisionActor
 
-    init(capture: CaptureActor, audio: AudioActor) {
+    init(capture: CaptureActor, audio: AudioActor, vision: VisionActor) {
         self.capture = capture
         self.audio = audio
+        self.vision = vision
     }
 
     func run(seconds: Double = 5) {
@@ -43,26 +46,23 @@ final class CaptureDiagnosticsViewModel {
 
         let capture = self.capture
         let audio = self.audio
+        let vision = self.vision
         Task { [weak self] in
             do {
+                // The vision loop is the frame consumer (attach is idempotent); its processing
+                // rate vs. 60 fps capture is exactly what the dropped-frame counter measures.
+                await vision.attach(to: capture.frames)
+                await vision.resetStats()
                 try await capture.start()
                 try await audio.start()
-
-                // Drain frames as fast as they arrive so buffering drops reflect the pipeline, not
-                // an artificially stalled consumer.
-                let drain = Task {
-                    for await _ in capture.frames {
-                        if Task.isCancelled { break }
-                    }
-                }
 
                 let videoBefore = await capture.counts()
                 let audioBefore = await audio.totalCaptured()
                 try await Task.sleep(for: .seconds(seconds))
                 let videoAfter = await capture.counts()
                 let audioAfter = await audio.totalCaptured()
+                let visionStats = await vision.stats()
 
-                drain.cancel()
                 await capture.stop()
                 await audio.stop()
 
@@ -72,7 +72,8 @@ final class CaptureDiagnosticsViewModel {
                                       delivered: delivered,
                                       dropped: dropped,
                                       audioSamples: audioAfter - audioBefore,
-                                      seconds: seconds)
+                                      seconds: seconds,
+                                      vision: visionStats)
             } catch {
                 await capture.stop()
                 await audio.stop()

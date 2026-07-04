@@ -14,7 +14,8 @@ struct AuraLink_AIApp: App {
     var body: some Scene {
         WindowGroup {
             TranslateScreen(model: container.translateViewModel,
-                            diagnostics: container.captureDiagnosticsViewModel)
+                            diagnostics: container.captureDiagnosticsViewModel,
+                            posePreview: container.posePreviewViewModel)
         }
     }
 }

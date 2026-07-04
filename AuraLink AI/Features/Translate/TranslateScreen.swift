@@ -12,11 +12,16 @@ import SwiftUI
 struct TranslateScreen: View {
     @State private var model: TranslateViewModel
     @State private var showingDiagnostics = false
+    @State private var showingPosePreview = false
     private let diagnostics: CaptureDiagnosticsViewModel
+    private let posePreview: PosePreviewViewModel
 
-    init(model: TranslateViewModel, diagnostics: CaptureDiagnosticsViewModel) {
+    init(model: TranslateViewModel,
+         diagnostics: CaptureDiagnosticsViewModel,
+         posePreview: PosePreviewViewModel) {
         _model = State(initialValue: model)
         self.diagnostics = diagnostics
+        self.posePreview = posePreview
     }
 
     var body: some View {
@@ -35,6 +40,9 @@ struct TranslateScreen: View {
         .sheet(isPresented: $showingDiagnostics) {
             CaptureDiagnosticsView(model: diagnostics)
         }
+        .sheet(isPresented: $showingPosePreview) {
+            PosePreviewScreen(model: posePreview)
+        }
     }
 
     private var header: some View {
@@ -48,6 +56,12 @@ struct TranslateScreen: View {
                 .padding(.vertical, 4)
                 .background(.quaternary, in: Capsule())
                 .accessibilityLabel("Device capability tier \(model.tier.badge)")
+            Button {
+                showingPosePreview = true
+            } label: {
+                Image(systemName: "hand.raised")
+            }
+            .accessibilityLabel("Live pose preview")
             Button {
                 showingDiagnostics = true
             } label: {
@@ -147,6 +161,9 @@ private struct FlowText: View {
 #Preview {
     let tier = CapabilityTier.baseline(for: .a17plus)
     let vm = TranslateViewModel(pipeline: MockCaptionPipeline(tier: tier), tier: tier)
-    let diagnostics = CaptureDiagnosticsViewModel(capture: CaptureActor(), audio: AudioActor())
-    return TranslateScreen(model: vm, diagnostics: diagnostics)
+    let capture = CaptureActor()
+    let vision = VisionActor()
+    let diagnostics = CaptureDiagnosticsViewModel(capture: capture, audio: AudioActor(), vision: vision)
+    let posePreview = PosePreviewViewModel(capture: capture, vision: vision)
+    return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview)
 }

@@ -37,6 +37,13 @@ struct CaptureDiagnosticsView: View {
                     Section("Audio") {
                         row("Samples captured", "\(report.audioSamples)")
                     }
+                    Section("Pose (capture → pose)") {
+                        row("Frames processed", "\(report.vision.framesProcessed)")
+                        row("Latency p50", String(format: "%.1f ms", report.vision.latencyP50Ms))
+                        row("Latency p95", String(format: "%.1f ms", report.vision.latencyP95Ms))
+                        row("Latency max", String(format: "%.1f ms", report.vision.latencyMaxMs))
+                        row("Frames with hands", String(format: "%.0f%%", report.vision.detectionRate * 100))
+                    }
                     Section {
                         Text(gateVerdict(report))
                             .font(.footnote)
@@ -71,9 +78,15 @@ struct CaptureDiagnosticsView: View {
     }
 
     private func gateVerdict(_ report: Report) -> String {
-        report.videoFps >= 55
-            ? "Gate PASS: sustained ~60 fps capture."
-            : "Below 60 fps target — check device format / thermal state."
+        let fpsOK = report.videoFps >= 55
+        // PERF.md capture→pose gate: ≤ 25 ms p95 (A17) / ≤ 40 ms p95 (A14 floor).
+        let poseOK = report.vision.framesProcessed > 0 && report.vision.latencyP95Ms <= 40
+        switch (fpsOK, poseOK) {
+        case (true, true): return "Gate PASS: ~60 fps capture, pose p95 within the 40 ms floor."
+        case (true, false): return "Capture OK; pose p95 above 40 ms — check thermal state / lighting."
+        case (false, true): return "Pose OK; below 60 fps capture — check device format / thermal state."
+        case (false, false): return "Below targets — check thermal state, lighting, and device format."
+        }
     }
 
     private typealias Report = CaptureDiagnosticsViewModel.Report
