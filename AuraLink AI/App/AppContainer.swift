@@ -20,6 +20,7 @@ final class AppContainer {
     let enrollViewModel: EnrollViewModel
     let listenViewModel: ListenViewModel
     let governor: GovernorController
+    let settings = AppSettings()
 
     init() {
         let rung = CapabilityProbe.detectRung()
@@ -57,7 +58,7 @@ final class AppContainer {
         // Phase 4: ambient audio → captions + sound events + haptic prosody.
         let haptics = HapticsActor()
         let listener = AudioListener(haptics: haptics)
-        self.listenViewModel = ListenViewModel(listener: listener)
+        self.listenViewModel = ListenViewModel(listener: listener, settings: settings)
 
         // Phase 5: capability governor. Live thermal/battery/memory signals resolve to an effective
         // tier that drives the HUD badge and retunes the vision front-end's processing rate.

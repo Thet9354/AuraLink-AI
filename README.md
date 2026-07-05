@@ -7,7 +7,9 @@ meaning across sensory modalities a user cannot access — American Sign Languag
 ambient speech → live captions + haptic prosody, and environmental sound → directional cues.
 Everything runs on device. No network. No data leaves the phone — by architecture, not by policy.
 
-> Status: **Phase 0 complete** (concurrency skeleton). See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Status: **All 6 phases complete — submission-ready** (device measurement + Aug 2026 launch
+> pending). Four working modalities: sign→text, speech→captions, sound→alerts, voice→haptics.
+> See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## The engineering claim
 

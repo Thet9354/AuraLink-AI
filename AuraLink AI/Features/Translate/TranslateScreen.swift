@@ -2,9 +2,10 @@
 //  TranslateScreen.swift
 //  AuraLink AI
 //
-//  Phase 0 UI. Renders the live caption with confidence-aware styling, a device-tier badge, and
-//  a glass-to-caption latency HUD. Named `TranslateScreen` (not `TranslateView`) to avoid the
-//  SwiftUI `NavigationView` naming-clash convention carried from the portfolio's prior project.
+//  The primary screen: live sign→text caption with confidence-aware styling, a glass-to-caption
+//  latency HUD, and a live capability badge. Secondary modes (Listen, Enroll, previews, Settings)
+//  live behind a single menu to keep the surface calm. Fully VoiceOver-labelled and Dynamic
+//  Type-friendly; captures stop when the app leaves the foreground.
 //
 
 import SwiftUI
@@ -16,24 +17,30 @@ struct TranslateScreen: View {
     @State private var showingEnroll = false
     @State private var showingListen = false
     @State private var showingGovernor = false
+    @State private var showingSettings = false
+    @Environment(\.scenePhase) private var scenePhase
+
     private let diagnostics: CaptureDiagnosticsViewModel
     private let posePreview: PosePreviewViewModel
     private let enroll: EnrollViewModel
     private let listen: ListenViewModel
     private let governor: GovernorController
+    private let settings: AppSettings
 
     init(model: TranslateViewModel,
          diagnostics: CaptureDiagnosticsViewModel,
          posePreview: PosePreviewViewModel,
          enroll: EnrollViewModel,
          listen: ListenViewModel,
-         governor: GovernorController) {
+         governor: GovernorController,
+         settings: AppSettings) {
         _model = State(initialValue: model)
         self.diagnostics = diagnostics
         self.posePreview = posePreview
         self.enroll = enroll
         self.listen = listen
         self.governor = governor
+        self.settings = settings
     }
 
     var body: some View {
@@ -49,20 +56,20 @@ struct TranslateScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
         .onDisappear { model.stop() }
-        .sheet(isPresented: $showingDiagnostics) {
-            CaptureDiagnosticsView(model: diagnostics)
+        // Lifecycle: release the camera + ANE whenever we leave the foreground.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model.stop() }
         }
-        .sheet(isPresented: $showingPosePreview) {
-            PosePreviewScreen(model: posePreview)
-        }
-        .sheet(isPresented: $showingEnroll) {
-            EnrollView(model: enroll)
-        }
-        .sheet(isPresented: $showingListen) {
-            ListenScreen(model: listen)
-        }
-        .sheet(isPresented: $showingGovernor) {
-            GovernorView(controller: governor)
+        .sheet(isPresented: $showingDiagnostics) { CaptureDiagnosticsView(model: diagnostics) }
+        .sheet(isPresented: $showingPosePreview) { PosePreviewScreen(model: posePreview) }
+        .sheet(isPresented: $showingEnroll) { EnrollView(model: enroll) }
+        .sheet(isPresented: $showingListen) { ListenScreen(model: listen) }
+        .sheet(isPresented: $showingGovernor) { GovernorView(controller: governor) }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(settings: settings) {
+                showingSettings = false
+                settings.hasOnboarded = false   // App re-presents onboarding
+            }
         }
     }
 
@@ -71,43 +78,40 @@ struct TranslateScreen: View {
             Label("AuraLink", systemImage: "hand.wave")
                 .font(.headline)
             Spacer()
-            Button {
-                showingGovernor = true
-            } label: {
-                Text(governor.resolved.badge)
-                    .font(.caption.monospaced())
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(tierBadgeColor, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Capability \(governor.resolved.badge). Open governor.")
-            .tint(.primary)
-            Button {
-                showingListen = true
-            } label: {
-                Image(systemName: "ear")
-            }
-            .accessibilityLabel("Listen to ambient audio")
-            Button {
-                showingEnroll = true
-            } label: {
-                Image(systemName: "plus.rectangle.on.folder")
-            }
-            .accessibilityLabel("Enroll signs")
-            Button {
-                showingPosePreview = true
-            } label: {
-                Image(systemName: "hand.raised")
-            }
-            .accessibilityLabel("Live pose preview")
-            Button {
-                showingDiagnostics = true
-            } label: {
-                Image(systemName: "stethoscope")
-            }
-            .accessibilityLabel("Capture diagnostics")
+            capabilityBadge
+            menu
         }
+    }
+
+    private var capabilityBadge: some View {
+        Button {
+            showingGovernor = true
+        } label: {
+            Text(governor.resolved.badge)
+                .font(.caption.monospaced())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(tierBadgeColor, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .tint(.primary)
+        .accessibilityLabel("Capability \(governor.resolved.badge). Opens the governor.")
+    }
+
+    private var menu: some View {
+        Menu {
+            Button { showingListen = true } label: { Label("Listen", systemImage: "ear") }
+            Button { showingEnroll = true } label: { Label("Enroll signs", systemImage: "plus.rectangle.on.folder") }
+            Divider()
+            Button { showingPosePreview = true } label: { Label("Pose preview", systemImage: "hand.raised") }
+            Button { showingDiagnostics = true } label: { Label("Diagnostics", systemImage: "stethoscope") }
+            Divider()
+            Button { showingSettings = true } label: { Label("Settings", systemImage: "gearshape") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .imageScale(.large)
+        }
+        .accessibilityLabel("More")
     }
 
     private var tierBadgeColor: Color {
@@ -123,16 +127,18 @@ struct TranslateScreen: View {
     private var caption: some View {
         if let caption = model.caption {
             VStack(spacing: 12) {
-                FlowText(spans: caption.spans)
+                FlowText(spans: caption.spans, large: settings.largeCaptions)
                     .animation(.easeInOut(duration: 0.15), value: caption.id)
                 confidenceLabel(caption.band)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(caption.plainText)
+            .accessibilityValue(confidenceWord(caption.band))
         } else {
-            Text(model.isRunning ? "Listening…" : "Tap Start to translate")
+            Text(model.isRunning ? "Signing…" : "Tap Start, then sign to the camera")
                 .font(.title3)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 
@@ -145,40 +151,57 @@ struct TranslateScreen: View {
         return Text(text)
             .font(.caption)
             .foregroundStyle(color)
+            .accessibilityHidden(true)
     }
 
-    private var latencyHUD: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "gauge.with.needle")
-            Text(model.caption.map { "\($0.latencyMs) ms" } ?? "—")
-                .monospacedDigit()
+    private func confidenceWord(_ band: ConfidenceBand) -> String {
+        switch band {
+        case .high: "high confidence"
+        case .medium: "medium confidence"
+        case .low: "low confidence, please verify"
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var latencyHUD: some View {
+        if let caption = model.caption {
+            HStack(spacing: 6) {
+                Image(systemName: "gauge.with.needle")
+                Text("\(caption.latencyMs) ms")
+                    .monospacedDigit()
+            }
+            // `.primary` (not `.secondary`): small text must clear the 4.5:1 contrast bar.
+            .font(.caption)
+            .foregroundStyle(.primary)
+            .accessibilityHidden(true)
+        }
     }
 
     private var controlButton: some View {
         Button {
             model.isRunning ? model.stop() : model.start()
         } label: {
+            // Large text (20 pt) qualifies for the relaxed 3:1 contrast threshold on the tinted fill.
             Text(model.isRunning ? "Stop" : "Start")
-                .font(.headline)
+                .font(.title3.weight(.semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
         }
         .buttonStyle(.borderedProminent)
         .tint(model.isRunning ? .red : .accentColor)
+        .accessibilityHint(model.isRunning ? "Stops translating" : "Starts the camera and translates your signing")
     }
 }
 
-/// Renders styled caption spans as wrapping text, applying confidence-aware styling.
+/// Renders styled caption spans as wrapping text, applying confidence-aware styling. Uses a Dynamic
+/// Type text style (scales with the user's preferred size) rather than a fixed point size.
 private struct FlowText: View {
     let spans: [StyledSpan]
+    var large: Bool = false
 
     var body: some View {
         Text(attributed)
-            .font(.system(size: 34, weight: .semibold, design: .rounded))
+            .font(.system(large ? .largeTitle : .title, design: .rounded).weight(.semibold))
             .multilineTextAlignment(.center)
             .lineSpacing(4)
             .minimumScaleFactor(0.6)
@@ -213,12 +236,13 @@ private struct FlowText: View {
     let vision = VisionActor()
     let store = ExemplarFileStore()
     let lexicon = SignLexicon(entries: [])
+    let settings = AppSettings(defaults: UserDefaults(suiteName: "preview") ?? .standard)
     let diagnostics = CaptureDiagnosticsViewModel(capture: capture, audio: AudioActor(), vision: vision)
     let posePreview = PosePreviewViewModel(capture: capture, vision: vision)
     let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
     let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
-    let listen = ListenViewModel(listener: AudioListener(haptics: HapticsActor()))
+    let listen = ListenViewModel(listener: AudioListener(haptics: HapticsActor()), settings: settings)
     let governor = GovernorController(baseRung: .a17plus)
     return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview,
-                           enroll: enroll, listen: listen, governor: governor)
+                           enroll: enroll, listen: listen, governor: governor, settings: settings)
 }

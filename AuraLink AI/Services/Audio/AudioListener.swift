@@ -46,6 +46,7 @@ actor AudioListener {
     private var sampleRate: Double = 48_000
     private let windowSize = 2048
     private var running = false
+    private var audioObservers: [NSObjectProtocol] = []
 
     private let _executor = DispatchQueueExecutor(label: "com.thetpine.auralink.audio.listener",
                                                   qos: .userInitiated)
@@ -61,10 +62,11 @@ actor AudioListener {
         captionsContinuation = captionCont
     }
 
-    func start() async throws {
+    func start(hapticsEnabled: Bool = true) async throws {
         guard !running else { return }
         guard await CaptureAuthorization.ensureMicrophone() else { throw ListenError.microphoneDenied }
         await haptics.start()
+        await haptics.setEnabled(hapticsEnabled)
 
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .measurement,
@@ -86,12 +88,15 @@ actor AudioListener {
         engine.prepare()
         try engine.start()
         running = true
+        registerAudioObservers()
         startDSPLoop()
     }
 
     func stop() async {
         guard running else { return }
         running = false
+        audioObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        audioObservers.removeAll()
         dspLoop?.cancel()
         dspLoop = nil
         engine.inputNode.removeTap(onBus: 0)
@@ -159,6 +164,39 @@ actor AudioListener {
     private func emitSpeechUnavailable(_ message: String) {
         captionsContinuation.yield(CaptionDTO(spans: [StyledSpan(text: message, weight: .tentative)],
                                               band: .low, latencyMs: 0, source: .speech, timestamp: .now))
+    }
+
+    // MARK: - Interruption / route-change recovery
+
+    private func registerAudioObservers() {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+
+        audioObservers.append(center.addObserver(forName: AVAudioSession.interruptionNotification,
+                                                 object: session, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw), type == .ended else { return }
+            Task { await self?.restartEngine() }   // interruption ended (call/Siri) → resume
+        })
+
+        audioObservers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification,
+                                                 object: session, queue: .main) { [weak self] note in
+            guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+            if reason == .oldDeviceUnavailable || reason == .newDeviceAvailable {
+                Task { await self?.restartEngine() }   // headphones (un)plugged, Bluetooth switch
+            }
+        })
+    }
+
+    private func restartEngine() async {
+        guard running else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            // Leave stopped; the next interruption-end / route change retries.
+        }
     }
 
     // MARK: - DSP loop

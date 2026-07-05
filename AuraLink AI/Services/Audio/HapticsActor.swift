@@ -20,6 +20,13 @@ actor HapticsActor {
     private var engine: CHHapticEngine?
     private var prosodyPlayer: CHHapticAdvancedPatternPlayer?
     private var running = false
+    private var enabled = true
+
+    /// Enable/disable all haptic output (user preference). Disabling silences the prosody channel.
+    func setEnabled(_ isEnabled: Bool) {
+        enabled = isEnabled
+        if !isEnabled { updateProsody(.silent) }
+    }
 
     func start() async {
         guard supportsHaptics, !running else { return }
@@ -50,7 +57,7 @@ actor HapticsActor {
 
     /// Modulate the continuous prosody haptic. Cheap enough to call ~20×/second.
     func updateProsody(_ parameters: HapticParameters) {
-        guard running, let player = prosodyPlayer else { return }
+        guard running, enabled, let player = prosodyPlayer else { return }
         let dynamics = [
             CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
                                      value: parameters.intensity, relativeTime: 0),
@@ -62,7 +69,7 @@ actor HapticsActor {
 
     /// Play a discrete alert pattern for a sound event; more taps + stronger for higher urgency.
     func playEvent(_ event: SoundEvent) {
-        guard running, let engine else { return }
+        guard running, enabled, let engine else { return }
         let taps: Int
         let intensity: Float
         switch event.urgency {

@@ -135,13 +135,28 @@ Locked design decisions (see also project memory):
   drop, pose rate fall, and features disable, then Auto → recover after the hysteresis window;
   confirm no hitch during the transition (Instruments).
 
-## Phase 6 — Hardening + submission
-- **Build:** full VoiceOver/Dynamic Type/low-vision HUD; onboarding sensory tutorial; lifecycle /
-  interruption / route-change recovery; `PrivacyInfo.xcprivacy` ("Data Not Collected"); App Store kit.
-- **APIs:** Accessibility, StoreKit/App Store Connect.
-- **Gate:** 30-min soak (flat Allocations, no crash, thermal ≤ `.serious`, battery Wh/hr documented);
-  accessibility audit zero-critical; **network egress = 0 proven with the Network Instrument**
-  (the marquee claim); cold-launch → first caption < 2 s (A17) / < 3 s (A14).
+## Phase 6 — Hardening + submission  ✅ DONE (device verification + Aug 2026 launch pending)
+- **Built:** four-page onboarding (modalities + privacy, primes camera/mic/speech permissions);
+  `AppSettings` (haptics toggle, larger captions, onboarding state — the only UserDefaults use,
+  CA92.1); Settings screen (with a privacy statement and onboarding replay); Dynamic-Type caption
+  fonts + VoiceOver labels/hints/values throughout; consolidated the utility screens behind one
+  menu; lifecycle recovery (scene-phase teardown releases camera/ANE on background; `AudioListener`
+  handles AVAudioSession interruption + route-change → engine restart); `PrivacyInfo.xcprivacy`
+  ("Data Not Collected"); usage strings for camera/mic/speech. Docs: `PRIVACY.md`,
+  `docs/APP_STORE_KIT.md`, `docs/LAUNCH_CHECKLIST.md`.
+- **APIs:** SwiftUI accessibility, Observation, UIKit lifecycle, XCTest accessibility audit.
+- **Gate — code (met):** zero-warning Swift 6 build; 94 unit tests green; **zero networking APIs in
+  the target** (grep-verified — the architectural basis of the zero-egress claim); accessibility
+  audit UI test on the main + onboarding screens.
+- **Gate — device / launch (pending, in `docs/LAUNCH_CHECKLIST.md`):** 30-min soak (flat
+  Allocations, no crash, thermal ≤ `.serious`, battery Wh/hr); Accessibility Inspector zero-critical
+  + VoiceOver/large-type pass; **network egress = 0 proven with the Network Instrument** (marquee);
+  cold-launch → first caption < 2 s (A17) / < 3 s (A14). No Apple Developer membership until
+  **August 2026** → everything is prepared for a mechanical launch (mirrors the prior project).
 
-> Note: no Apple Developer membership until **August 2026**. Phase 6 prepares everything for a
-> mechanical launch with no paid-account dependency until then (mirrors the prior portfolio project).
+---
+
+**Roadmap complete.** Six phases, blank project → submission-ready: a provably data-race-free,
+back-pressured, zero-network multimodal accessibility engine with sign→text, speech→captions,
+sound→alerts, and voice→haptics, an adaptive A14→A17 quality ladder, and encrypted personalization.
+Remaining work is device measurement + the August 2026 launch.

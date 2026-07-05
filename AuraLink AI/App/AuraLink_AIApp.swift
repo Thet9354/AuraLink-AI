@@ -13,12 +13,17 @@ struct AuraLink_AIApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TranslateScreen(model: container.translateViewModel,
-                            diagnostics: container.captureDiagnosticsViewModel,
-                            posePreview: container.posePreviewViewModel,
-                            enroll: container.enrollViewModel,
-                            listen: container.listenViewModel,
-                            governor: container.governor)
+            if container.settings.hasOnboarded {
+                TranslateScreen(model: container.translateViewModel,
+                                diagnostics: container.captureDiagnosticsViewModel,
+                                posePreview: container.posePreviewViewModel,
+                                enroll: container.enrollViewModel,
+                                listen: container.listenViewModel,
+                                governor: container.governor,
+                                settings: container.settings)
+            } else {
+                OnboardingView { container.settings.hasOnboarded = true }
+            }
         }
     }
 }

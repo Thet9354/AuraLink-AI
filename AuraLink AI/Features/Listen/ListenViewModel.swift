@@ -20,14 +20,16 @@ final class ListenViewModel {
     private(set) var errorText: String?
 
     private let listener: AudioListener
+    private let settings: AppSettings
     private var captionTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var prosodyTask: Task<Void, Never>?
 
     private let maxEvents = 6
 
-    init(listener: AudioListener) {
+    init(listener: AudioListener, settings: AppSettings) {
         self.listener = listener
+        self.settings = settings
     }
 
     func start() {
@@ -36,9 +38,10 @@ final class ListenViewModel {
         errorText = nil
 
         let listener = self.listener
+        let hapticsEnabled = settings.hapticsEnabled
         Task { [weak self] in
             do {
-                try await listener.start()
+                try await listener.start(hapticsEnabled: hapticsEnabled)
             } catch {
                 self?.errorText = "Microphone unavailable: \(error)"
                 self?.isRunning = false
