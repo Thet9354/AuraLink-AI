@@ -2,9 +2,12 @@
 //  ExemplarFileStore.swift
 //  AuraLink AI
 //
-//  Documents-directory JSON store for the exemplar library. One file per exemplar
-//  (Exemplars/<lexID>-<uuid>.json) so a corrupt write can never take down the whole library.
-//  Files are written with complete file protection. Phase 5 adds Secure-Enclave key wrapping.
+//  Documents-directory store for the exemplar library. One file per exemplar so a corrupt write
+//  can never take down the whole library, written with complete file protection.
+//
+//  When an `ExemplarCryptor` is supplied (production), each exemplar's JSON is AES-GCM encrypted at
+//  rest under a device-only key and written as a `.sealed` file — nothing on disk reveals which
+//  signs the user recorded. Without a cryptor (tests / previews) it writes plaintext `.json`.
 //
 
 import Foundation
@@ -12,16 +15,20 @@ import Foundation
 actor ExemplarFileStore: ExemplarStoring {
 
     private let directory: URL
+    private let cryptor: ExemplarCryptor?
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(directory: URL? = nil) {
+    private var fileExtension: String { cryptor == nil ? "json" : "sealed" }
+
+    init(directory: URL? = nil, cryptor: ExemplarCryptor? = nil) {
         if let directory {
             self.directory = directory
         } else {
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             self.directory = docs.appendingPathComponent("Exemplars", isDirectory: true)
         }
+        self.cryptor = cryptor
     }
 
     func loadAll() throws -> [SignExemplar] {
@@ -29,22 +36,23 @@ actor ExemplarFileStore: ExemplarStoring {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory,
                                                                   includingPropertiesForKeys: nil)) ?? []
         return files
-            .filter { $0.pathExtension == "json" }
+            .filter { $0.pathExtension == fileExtension }
             .compactMap { url in
-                guard let data = try? Data(contentsOf: url),
-                      let exemplar = try? decoder.decode(SignExemplar.self, from: data) else {
-                    return nil   // skip unreadable files; never fail the whole library
+                guard let raw = try? Data(contentsOf: url),
+                      let decoded = try? decode(raw),
+                      decoded.layoutVersion == FeatureExtractor.Layout.version else {
+                    return nil   // unreadable / wrong-layout files are skipped, never misinterpreted
                 }
-                // A layout-version mismatch must be skipped, not misinterpreted.
-                return exemplar.layoutVersion == FeatureExtractor.Layout.version ? exemplar : nil
+                return decoded
             }
     }
 
     func save(_ exemplar: SignExemplar) throws {
         try ensureDirectory()
-        let url = directory.appendingPathComponent("\(exemplar.lexID)-\(exemplar.id.uuidString).json")
-        let data = try encoder.encode(exemplar)
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        let url = directory.appendingPathComponent("\(exemplar.lexID)-\(exemplar.id.uuidString).\(fileExtension)")
+        let json = try encoder.encode(exemplar)
+        let payload = try cryptor?.encrypt(json) ?? json
+        try payload.write(to: url, options: [.atomic, .completeFileProtection])
     }
 
     func counts() throws -> [String: Int] {
@@ -60,6 +68,11 @@ actor ExemplarFileStore: ExemplarStoring {
         for url in files where url.lastPathComponent.hasPrefix("\(lexID)-") {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    private func decode(_ raw: Data) throws -> SignExemplar {
+        let json = try cryptor?.decrypt(raw) ?? raw
+        return try decoder.decode(SignExemplar.self, from: json)
     }
 
     private func ensureDirectory() throws {

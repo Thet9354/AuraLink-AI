@@ -47,6 +47,11 @@ actor VisionActor: PoseProducing {
 
     private var loop: Task<Void, Never>?
     private var lastBody: BodyAnchors?
+
+    // Governor-controlled processing rate. Capture is 60 fps; under thermal/battery pressure the
+    // governor lowers this and we skip frames, cutting ANE/GPU load with a visible (choppier) effect.
+    private var targetHz = 60
+    private var frameIndex: UInt64 = 0
     private var featureState = FeatureExtractor.State()
     private var featureRing = RingBuffer<FeatureVector>(capacity: 90)   // ~3 s at 30 Hz inference
 
@@ -73,9 +78,22 @@ actor VisionActor: PoseProducing {
         guard loop == nil else { return }
         loop = Task {
             for await token in frames {
-                self.process(token)
+                self.consume(token)
             }
         }
+    }
+
+    /// Governor hook: cap the pose-processing rate (frames are skipped to approximate `hz`).
+    func setTargetHz(_ hz: Int) {
+        targetHz = max(1, min(60, hz))
+    }
+
+    /// Applies frame-skipping before the (expensive) `process`.
+    private func consume(_ token: FrameToken) {
+        frameIndex &+= 1
+        let skipInterval = UInt64(max(1, 60 / targetHz))
+        guard frameIndex % skipInterval == 0 else { return }
+        process(token)
     }
 
     /// Most recent feature vectors, oldest → newest (Phase 3 segmentation input).

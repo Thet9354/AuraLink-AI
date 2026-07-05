@@ -15,21 +15,25 @@ struct TranslateScreen: View {
     @State private var showingPosePreview = false
     @State private var showingEnroll = false
     @State private var showingListen = false
+    @State private var showingGovernor = false
     private let diagnostics: CaptureDiagnosticsViewModel
     private let posePreview: PosePreviewViewModel
     private let enroll: EnrollViewModel
     private let listen: ListenViewModel
+    private let governor: GovernorController
 
     init(model: TranslateViewModel,
          diagnostics: CaptureDiagnosticsViewModel,
          posePreview: PosePreviewViewModel,
          enroll: EnrollViewModel,
-         listen: ListenViewModel) {
+         listen: ListenViewModel,
+         governor: GovernorController) {
         _model = State(initialValue: model)
         self.diagnostics = diagnostics
         self.posePreview = posePreview
         self.enroll = enroll
         self.listen = listen
+        self.governor = governor
     }
 
     var body: some View {
@@ -57,6 +61,9 @@ struct TranslateScreen: View {
         .sheet(isPresented: $showingListen) {
             ListenScreen(model: listen)
         }
+        .sheet(isPresented: $showingGovernor) {
+            GovernorView(controller: governor)
+        }
     }
 
     private var header: some View {
@@ -64,12 +71,18 @@ struct TranslateScreen: View {
             Label("AuraLink", systemImage: "hand.wave")
                 .font(.headline)
             Spacer()
-            Text(model.tier.badge)
-                .font(.caption.monospaced())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.quaternary, in: Capsule())
-                .accessibilityLabel("Device capability tier \(model.tier.badge)")
+            Button {
+                showingGovernor = true
+            } label: {
+                Text(governor.resolved.badge)
+                    .font(.caption.monospaced())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(tierBadgeColor, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Capability \(governor.resolved.badge). Open governor.")
+            .tint(.primary)
             Button {
                 showingListen = true
             } label: {
@@ -94,6 +107,15 @@ struct TranslateScreen: View {
                 Image(systemName: "stethoscope")
             }
             .accessibilityLabel("Capture diagnostics")
+        }
+    }
+
+    private var tierBadgeColor: Color {
+        switch governor.resolved.reason {
+        case .nominal: Color(.quaternarySystemFill)
+        case .thermal: .red.opacity(0.25)
+        case .lowPower: .orange.opacity(0.25)
+        case .memory: .yellow.opacity(0.25)
         }
     }
 
@@ -196,6 +218,7 @@ private struct FlowText: View {
     let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
     let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
     let listen = ListenViewModel(listener: AudioListener(haptics: HapticsActor()))
+    let governor = GovernorController(baseRung: .a17plus)
     return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview,
-                           enroll: enroll, listen: listen)
+                           enroll: enroll, listen: listen, governor: governor)
 }

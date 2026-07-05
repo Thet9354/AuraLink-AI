@@ -17,7 +17,8 @@ struct AuraLink_AIApp: App {
                             diagnostics: container.captureDiagnosticsViewModel,
                             posePreview: container.posePreviewViewModel,
                             enroll: container.enrollViewModel,
-                            listen: container.listenViewModel)
+                            listen: container.listenViewModel,
+                            governor: container.governor)
         }
     }
 }

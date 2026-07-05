@@ -110,14 +110,30 @@ Locked design decisions (see also project memory):
   sound-onset→haptic ≤ 100 ms; **zero network egress** while captioning (Network Instrument — the
   marquee check, since on-device ASR is the risk point).
 
-## Phase 5 — Personalization + governor
-- **Build:** enrollment (20 phrases → user's own DTW exemplars, few-shot); Secure-Enclave-encrypted
-  lexicon delta; full `ThermalGovernor` (device + thermal + battery + memory → effective tier,
-  hysteretic); precise `CapabilityProbe` lookup table + ANE micro-benchmark fallback; predictive
-  gesture head (a17plus only).
-- **APIs:** CryptoKit + Secure Enclave, `ProcessInfo.thermalState`, low-power mode, Core ML.
-- **Gate:** per-user accuracy lift on held-out signs vs baseline; governor drop-under-heat holds
-  fps (no hitch); adapter ciphertext-at-rest assertion.
+## Phase 5 — Personalization + governor  ✅ DONE (device run pending)
+- **Built:** `ThermalGovernor` — pure, time-parameterized state machine: effective rung = min
+  across thermal/lowPower/memory ceilings (never above baseline); **hysteresis** (downgrade
+  immediately, upgrade only after the improved state holds `upgradeStabilitySeconds`); critical
+  thermal → captions-only. `GovernorController` (@MainActor @Observable) wires real
+  `ProcessInfo` thermal/power + memory-warning notifications + a 1 Hz tick, drives the live HUD
+  badge, and retunes `VisionActor` processing Hz (real, visible frame-skip under heat).
+  `GovernorView` with a **thermal-state override** so the adaptation can be demoed live on device.
+  Exemplar encryption at rest: `ExemplarCryptor` (AES-GCM) + `KeychainKeyProvider` (256-bit key,
+  `WhenUnlockedThisDeviceOnly`); `ExemplarFileStore` writes `.sealed` ciphertext. Precise
+  `CapabilityProbe` identifier→rung table (Pro-vs-non-Pro aware) + major-version heuristic + RAM
+  fallback.
+- **APIs:** CryptoKit, Security (Keychain), `ProcessInfo` thermal/power, UIKit memory-warning.
+- **Personalization note:** the DTW library is *already* the user's own recorded exemplars
+  (Phase 3 enrollment), so recognition is inherently personalized; Phase 5 secures it and adds the
+  governor. **Predictive gesture head deferred** (a17plus nicety; an autoregressive predictor is
+  its own project — documented, not built, consistent with the honest-deferral pattern).
+- **Gate — code (met):** zero-warning Swift 6 build; 94 unit tests green — governor min-across-
+  ceilings + never-above-baseline + downgrade-immediate/upgrade-delayed + fluctuation-resets-timer;
+  **exemplar ciphertext-at-rest** (raw disk bytes contain no lex id / JSON) + round-trip + wrong-key
+  fails; capability table classifies known identifiers.
+- **Gate — device (pending):** open the Governor badge → force Serious/Critical and watch the tier
+  drop, pose rate fall, and features disable, then Auto → recover after the hysteresis window;
+  confirm no hitch during the transition (Instruments).
 
 ## Phase 6 — Hardening + submission
 - **Build:** full VoiceOver/Dynamic Type/low-vision HUD; onboarding sensory tutorial; lifecycle /

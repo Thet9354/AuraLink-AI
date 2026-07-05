@@ -19,6 +19,7 @@ final class AppContainer {
     let posePreviewViewModel: PosePreviewViewModel
     let enrollViewModel: EnrollViewModel
     let listenViewModel: ListenViewModel
+    let governor: GovernorController
 
     init() {
         let rung = CapabilityProbe.detectRung()
@@ -33,7 +34,9 @@ final class AppContainer {
         let vision = VisionActor()
 
         let lexicon = LexiconLoader.loadBundled()
-        let store = ExemplarFileStore()
+        // Phase 5: exemplars encrypted at rest under a device-only key (biometric-adjacent data).
+        let cryptor = (try? KeychainKeyProvider().key()).map(ExemplarCryptor.init(key:))
+        let store = ExemplarFileStore(cryptor: cryptor)
 
         // Phase 3: the real DTW translation graph behind the CaptionProducing seam — no UI change.
         let pipeline = SignTranslationPipeline(capture: capture,
@@ -55,5 +58,14 @@ final class AppContainer {
         let haptics = HapticsActor()
         let listener = AudioListener(haptics: haptics)
         self.listenViewModel = ListenViewModel(listener: listener)
+
+        // Phase 5: capability governor. Live thermal/battery/memory signals resolve to an effective
+        // tier that drives the HUD badge and retunes the vision front-end's processing rate.
+        let governor = GovernorController(baseRung: rung)
+        self.governor = governor
+        governor.onChange = { resolved in
+            Task { await vision.setTargetHz(resolved.tier.fpsCaps.poseSampleHz) }
+        }
+        governor.start()
     }
 }
