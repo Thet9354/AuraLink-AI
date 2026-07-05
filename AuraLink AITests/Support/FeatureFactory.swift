@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import simd
 @testable import AuraLink_AI
 
 enum FeatureFactory {
@@ -14,12 +15,13 @@ enum FeatureFactory {
     typealias Layout = FeatureExtractor.Layout
 
     /// A feature vector with a right hand present, a distinct handshape "signature" per `seed`,
-    /// and a chosen wrist speed (drives motion energy / segmentation).
+    /// a chosen wrist speed (drives motion energy), and a raw wrist position (drives segmentation).
     static func frame(seed: Float,
                       wristSpeed: Float,
                       time: Double,
                       seq: UInt64,
-                      rightValid: Bool = true) -> FeatureVector {
+                      rightValid: Bool = true,
+                      wrist: SIMD2<Float> = SIMD2(0.5, 0.5)) -> FeatureVector {
         var v = [Float](repeating: 0, count: Layout.dimension)
         if rightValid {
             v[Layout.rightValidIndex] = 1
@@ -34,7 +36,8 @@ enum FeatureFactory {
                              timeSeconds: time,
                              seq: seq,
                              leftHandValid: false,
-                             rightHandValid: rightValid)
+                             rightHandValid: rightValid,
+                             primaryWrist: rightValid ? wrist : nil)
     }
 
     /// A resting frame: hand present but motionless (below the close threshold).

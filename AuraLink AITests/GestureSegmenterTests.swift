@@ -2,40 +2,45 @@
 //  GestureSegmenterTests.swift
 //  AuraLink AITests
 //
-//  Phase 3 gate (settle-triggered model): a sign is recognized when the hand holds still. Emits
-//  once per hold, re-arms on deliberate motion, ignores no-hand frames and too-brief settles.
+//  Phase 3 gate (settle-triggered, wrist-position model): a sign is recognized when the wrist holds
+//  its position. Emits once per hold, re-arms when the hand moves to a new position, ignores
+//  no-hand frames, continuous motion, and too-brief holds.
 //
 
 import Testing
+import simd
 @testable import AuraLink_AI
 
 struct GestureSegmenterTests {
 
     private let fps = 30.0
 
-    /// Feeds a sequence of (present, energy-driving wristSpeed) frames; returns emitted segments.
-    private func run(_ steps: [(present: Bool, speed: Float)],
+    /// Feeds a wrist trajectory (nil = hand absent) at 30 fps; returns emitted segments.
+    private func run(_ wrists: [SIMD2<Float>?],
                      config: GestureSegmenter.Config = .init()) -> [GestureSegment] {
         var seg = GestureSegmenter(config: config)
         var out: [GestureSegment] = []
-        for (i, step) in steps.enumerated() {
+        for (i, w) in wrists.enumerated() {
             let t = Double(i) / fps
-            let frame = step.present
-                ? FeatureFactory.frame(seed: 1, wristSpeed: step.speed, time: t, seq: UInt64(i))
-                : FeatureFactory.empty(time: t, seq: UInt64(i))
+            let frame = w.map { FeatureFactory.frame(seed: 1, wristSpeed: 0, time: t, seq: UInt64(i), wrist: $0) }
+                ?? FeatureFactory.empty(time: t, seq: UInt64(i))
             if let s = seg.ingest(frame) { out.append(s) }
         }
         return out
     }
 
-    private func held(_ n: Int) -> [(present: Bool, speed: Float)] { Array(repeating: (true, 0), count: n) }
-    private func moving(_ n: Int) -> [(present: Bool, speed: Float)] { Array(repeating: (true, 1.0), count: n) }
-    private func absent(_ n: Int) -> [(present: Bool, speed: Float)] { Array(repeating: (false, 0), count: n) }
+    private func held(_ n: Int, at p: SIMD2<Float> = SIMD2(0.5, 0.5)) -> [SIMD2<Float>?] {
+        Array(repeating: p, count: n)
+    }
+    private func moving(_ n: Int, from a: SIMD2<Float>, to b: SIMD2<Float>) -> [SIMD2<Float>?] {
+        (0..<n).map { i in a + (b - a) * (Float(i) / Float(max(n - 1, 1))) }
+    }
+    private func absent(_ n: Int) -> [SIMD2<Float>?] { Array(repeating: nil, count: n) }
 
     @Test func heldHandEmitsOnceAfterSettle() {
         let segments = run(held(15))
-        #expect(segments.count == 1)                       // exactly once, not per-frame spam
-        #expect((segments.first?.frameCount ?? 0) >= 4)
+        #expect(segments.count == 1)                       // once, not per-frame
+        #expect((segments.first?.frameCount ?? 0) >= 3)
     }
 
     @Test func noHandNeverEmits() {
@@ -43,34 +48,44 @@ struct GestureSegmenterTests {
     }
 
     @Test func dynamicSignThenHoldEmits() {
-        // Move the hand into position (energy high), then hold: recognized on settle.
-        let segments = run(moving(8) + held(10))
+        // Move the hand into position, then hold: recognized once it settles.
+        let segments = run(moving(8, from: SIMD2(0.3, 0.5), to: SIMD2(0.6, 0.5)) + held(10, at: SIMD2(0.6, 0.5)))
         #expect(segments.count == 1)
     }
 
-    @Test func reArmsForTheNextSignAfterMotion() {
-        // Hold (emit) → deliberate move (re-arm) → hold (emit again).
-        let segments = run(held(10) + moving(6) + held(10))
-        #expect(segments.count == 2)
+    @Test func reArmsForTheNextSignAfterMoving() {
+        // Hold (emit) → move to a new position (re-arm) → hold (emit again).
+        let sequence = held(10, at: SIMD2(0.4, 0.5))
+            + moving(6, from: SIMD2(0.4, 0.5), to: SIMD2(0.75, 0.5))
+            + held(10, at: SIMD2(0.75, 0.5))
+        #expect(run(sequence).count == 2)
     }
 
-    @Test func briefStillDoesNotEmit() {
-        // A settle shorter than settleSeconds (2 frames ≈ 0.067 s < 0.14 s), interrupted by motion.
-        let segments = run(moving(6) + held(2) + moving(6) + held(2))
-        #expect(segments.isEmpty)
+    @Test func briefHoldDoesNotEmit() {
+        // Holds of 2 frames (~0.067 s < 0.15 s), separated by motion — never settles.
+        let sequence = moving(6, from: SIMD2(0.2, 0.5), to: SIMD2(0.5, 0.5))
+            + held(2, at: SIMD2(0.5, 0.5))
+            + moving(6, from: SIMD2(0.5, 0.5), to: SIMD2(0.8, 0.5))
+            + held(2, at: SIMD2(0.8, 0.5))
+        #expect(run(sequence).isEmpty)
     }
 
     @Test func continuousMotionNeverSettles() {
-        #expect(run(moving(30)).isEmpty)
+        #expect(run(moving(30, from: SIMD2(0.15, 0.5), to: SIMD2(0.9, 0.5))).isEmpty)
     }
 
     @Test func handLeavingResetsTheHold() {
-        // Emit on first hold, hand leaves (re-arm), returns and holds → emits again.
-        let segments = run(held(10) + absent(4) + held(10))
-        #expect(segments.count == 2)
+        // Emit on the first hold, hand leaves, returns and holds → emits again.
+        #expect(run(held(10) + absent(4) + held(10)).count == 2)
     }
 
-    @Test func motionEnergyIsZeroForEmptyFrame() {
-        #expect(GestureSegmenter.motionEnergy(of: FeatureFactory.empty(time: 0, seq: 0)) == 0)
+    @Test func smallWristJitterStillSettles() {
+        // A held hand with sub-stillRadius jitter must still be recognized (the real-world case).
+        let jittered: [SIMD2<Float>?] = (0..<15).map { i in
+            let x: Float = 0.5 + Float(i % 3) * 0.01
+            let y: Float = 0.5 - Float(i % 2) * 0.01                     // ≤0.02 wander
+            return SIMD2<Float>(x, y)
+        }
+        #expect(run(jittered).count == 1)
     }
 }

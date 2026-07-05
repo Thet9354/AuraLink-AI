@@ -93,7 +93,8 @@ nonisolated enum FeatureExtractor {
                                    timeSeconds: observation.timeSeconds,
                                    seq: observation.seq,
                                    leftHandValid: left.valid,
-                                   rightHandValid: right.valid)
+                                   rightHandValid: right.valid,
+                                   primaryWrist: right.wristRaw ?? left.wristRaw)
         return (vector, next)
     }
 

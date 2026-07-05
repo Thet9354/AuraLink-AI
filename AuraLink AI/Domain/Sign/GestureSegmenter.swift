@@ -6,49 +6,52 @@
 //  model: a sign is recognized the moment the hand holds still, using the settled handshape itself.
 //
 //      hand appears → accumulate a rolling window
-//      motion drops below `stillThreshold` for `settleSeconds` → EMIT the window (once)
-//      motion rises above `moveThreshold` → re-arm for the next sign
+//      wrist holds within `stillRadius` for `settleSeconds` → EMIT the window (once)
+//      wrist moves `moveRadius` from the last emit → re-arm for the next sign
 //      hand leaves → reset
 //
-//  Why settle-triggered (not motion-in / pause-out): people show a sign and briefly HOLD it. A
-//  motion-gated segmenter would capture only the entry motion and trim away the held handshape —
-//  the actual sign — giving unreliable matches, and a purely static hold would never trigger. This
-//  model recognizes the stable pose, works whether the sign is dynamic or held, and fires promptly.
+//  Stillness is judged by the WRIST'S POSITION IN SPACE, not per-frame joint velocity. Vision's
+//  finger-joint estimates jitter a few pixels each frame; dividing that by the frame interval makes
+//  a perfectly still hand look like fast motion, so a velocity-based settle never fires. The wrist's
+//  absolute position, by contrast, is stable when a sign is held — and "the hand is holding a
+//  position" is exactly what showing a sign is.
 //
-//  `moveThreshold` > `stillThreshold` is the hysteresis that emits exactly once per hold.
-//  Timing is in SECONDS from frame timestamps, so it is identical at any pose frame rate.
+//  `moveRadius` > `stillRadius` is the hysteresis that emits exactly once per hold. Timing is in
+//  seconds from frame timestamps, so behavior is identical at any pose frame rate.
 //
 //  Pure value-type state machine — owned by an actor, fully unit-testable with synthetic frames.
 //
 
+import simd
+
 nonisolated struct GestureSegmenter {
 
     struct Config: Sendable {
-        /// Motion energy below this means the hand is settling toward a hold.
-        var stillThreshold: Float = 0.40
-        /// Motion energy above this re-arms the segmenter for the next sign (a deliberate move).
-        var moveThreshold: Float = 0.70
-        /// How long motion must stay below `stillThreshold` before the hold is recognized.
-        var settleSeconds: Double = 0.14
+        /// The wrist may wander within this radius (image-normalized) and still count as "held".
+        var stillRadius: Float = 0.05
+        /// Moving this far from the last recognized position re-arms for the next sign.
+        var moveRadius: Float = 0.10
+        /// How long the wrist must hold still before the sign is recognized.
+        var settleSeconds: Double = 0.15
         /// Trailing time window of hand-present frames included in the recognized segment.
         var windowSeconds: Double = 0.5
-        /// Minimum frames for a meaningful DTW comparison.
-        var minFrames: Int = 4
+        /// Minimum frames (within the settle window) for a meaningful DTW comparison.
+        var minFrames: Int = 3
 
         init() {}
     }
 
     let config: Config
     private var window: [FeatureVector] = []
-    private var lowStart: Double?            // when the current below-still streak began
-    private var armed = true                 // may we emit for the current hold?
+    private var armed = true
+    private var lastEmitWrist: SIMD2<Float>?
 
     init(config: Config = Config()) {
         self.config = config
     }
 
-    /// Instantaneous motion energy of a frame: for each valid hand, wrist speed (movement path)
-    /// plus mean finger-joint speed (articulation); the busier hand wins. Rest frames score ~0.
+    /// Instantaneous motion energy of a frame (wrist speed + mean finger speed). Retained for
+    /// diagnostics; the segmenter itself now triggers on wrist-position stability, not this.
     static func motionEnergy(of frame: FeatureVector) -> Float {
         typealias Layout = FeatureExtractor.Layout
         var best: Float = 0
@@ -66,8 +69,7 @@ nonisolated struct GestureSegmenter {
                 let vy = frame.values[velocityStart + i * 2 + 1]
                 shapeSum += (vx * vx + vy * vy).squareRoot()
             }
-            let shapeMean = shapeSum / Float(Layout.jointsPerHand)
-            return wristSpeed + shapeMean
+            return wristSpeed + shapeSum / Float(Layout.jointsPerHand)
         }
 
         best = max(best, handEnergy(valid: frame.leftHandValid,
@@ -81,55 +83,54 @@ nonisolated struct GestureSegmenter {
 
     /// Feed one frame; returns a recognized segment when a settled hold completes.
     mutating func ingest(_ frame: FeatureVector) -> GestureSegment? {
-        let handPresent = frame.leftHandValid || frame.rightHandValid
-        let t = frame.timeSeconds
-
-        guard handPresent else {
+        guard let wrist = frame.primaryWrist else {
             // Hand gone: drop the hold and re-arm for the next appearance.
             window.removeAll()
-            lowStart = nil
             armed = true
+            lastEmitWrist = nil
             return nil
         }
 
-        // Maintain a rolling window of the most recent hand-present frames.
+        let t = frame.timeSeconds
         window.append(frame)
         while let first = window.first, t - first.timeSeconds > config.windowSeconds {
             window.removeFirst()
         }
 
-        let energy = Self.motionEnergy(of: frame)
-
-        if energy >= config.moveThreshold {
-            // A deliberate move: this begins a (new) sign; allow the next hold to emit.
+        // Re-arm once the hand has moved clearly away from the last recognized position.
+        if let last = lastEmitWrist, simd_distance(wrist, last) > config.moveRadius {
             armed = true
-            lowStart = nil
+            lastEmitWrist = nil
+        }
+        guard armed else { return nil }
+
+        // Settled? Every wrist in the last `settleSeconds` sits within a small bounding box.
+        let recent = window.filter { t - $0.timeSeconds <= config.settleSeconds }
+        guard recent.count >= config.minFrames else { return nil }
+        let wrists = recent.compactMap(\.primaryWrist)
+        guard wrists.count == recent.count else { return nil }
+
+        let xs = wrists.map(\.x)
+        let ys = wrists.map(\.y)
+        let extentX = (xs.max() ?? 0) - (xs.min() ?? 0)
+        let extentY = (ys.max() ?? 0) - (ys.min() ?? 0)
+        guard extentX < config.stillRadius, extentY < config.stillRadius,
+              let first = window.first, let last = window.last else {
             return nil
         }
 
-        if energy < config.stillThreshold {
-            if lowStart == nil { lowStart = t }
-            if armed,
-               t - (lowStart ?? t) >= config.settleSeconds,
-               window.count >= config.minFrames,
-               let first = window.first, let last = window.last {
-                armed = false          // emit once per hold
-                return GestureSegment(frames: window,
-                                      startSeconds: first.timeSeconds,
-                                      endSeconds: last.timeSeconds,
-                                      closedReason: .pause)
-            }
-        } else {
-            // Between still and move: transitioning, neither settling nor re-arming.
-            lowStart = nil
-        }
-        return nil
+        armed = false
+        lastEmitWrist = wrist
+        return GestureSegment(frames: window,
+                              startSeconds: first.timeSeconds,
+                              endSeconds: last.timeSeconds,
+                              closedReason: .pause)
     }
 
     /// Abandon any in-progress hold (e.g. capture stopped).
     mutating func reset() {
         window.removeAll()
-        lowStart = nil
         armed = true
+        lastEmitWrist = nil
     }
 }
