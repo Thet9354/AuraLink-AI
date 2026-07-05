@@ -48,10 +48,10 @@ struct GestureSegmenterTests {
         #expect(run(frames).isEmpty)
     }
 
-    /// A brief motion burst shorter than minSegmentFrames is discarded as a twitch.
+    /// A brief motion burst shorter than the minimum segment duration is discarded as a twitch.
     @Test func shortBurstIsRejectedAsTwitch() {
         var config = GestureSegmenter.Config()
-        config.minSegmentFrames = 20
+        config.minSegmentSeconds = 0.5
         var frames: [FeatureVector] = []
         var seq: UInt64 = 0
         for _ in 0..<8 { frames.append(FeatureFactory.rest(seed: 1, time: Double(seq)/30, seq: seq)); seq += 1 }
@@ -64,7 +64,7 @@ struct GestureSegmenterTests {
     /// Continuous motion beyond the max bound force-closes.
     @Test func overlongMotionForceCloses() {
         var config = GestureSegmenter.Config()
-        config.maxSegmentFrames = 40
+        config.maxSegmentSeconds = 1.0            // ~30 frames at 30 fps
         var frames: [FeatureVector] = []
         var seq: UInt64 = 0
         for _ in 0..<6 { frames.append(FeatureFactory.rest(seed: 1, time: Double(seq)/30, seq: seq)); seq += 1 }
@@ -73,7 +73,8 @@ struct GestureSegmenterTests {
         let segments = run(frames, config: config)
         #expect(segments.count >= 1)
         #expect(segments.first?.closedReason == .maxLength)
-        #expect((segments.first?.frameCount ?? 0) <= config.maxSegmentFrames)
+        // Duration is bounded even though the motion ran much longer.
+        #expect((segments.first?.durationSeconds ?? 0) <= config.maxSegmentSeconds + 0.05)
     }
 
     /// Hysteresis: energy hovering between close and open thresholds does not flap the segment

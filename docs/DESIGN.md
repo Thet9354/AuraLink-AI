@@ -102,7 +102,7 @@ Feature availability by rung (single source of truth in `CapabilityTier.baseline
 | Feature | a17plus | a15 | a14floor |
 |---|---|---|---|
 | Sign model variant | full | full | distilled |
-| Pose sample rate | 60 | 60 | 30 |
+| Pose sample rate | 30 | 24 | 15 |
 | Sign inference rate | 30/s | 20/s | 12/s |
 | Predictive pre-emption | ✅ | ❌ | ❌ |
 | Haptic prosody | full | full | reduced |

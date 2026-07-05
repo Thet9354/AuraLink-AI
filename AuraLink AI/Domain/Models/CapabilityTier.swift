@@ -72,7 +72,7 @@ nonisolated struct CapabilityTier: Sendable, Equatable {
                                        lidarSoundDepth: true,
                                        fullHapticProsody: true,
                                        sceneNarration: .continuous),
-                fpsCaps: FpsCaps(poseSampleHz: 60, signInferenceHz: 30))
+                fpsCaps: FpsCaps(poseSampleHz: 30, signInferenceHz: 30))
         case .a15:
             return CapabilityTier(
                 rung: .a15,
@@ -81,7 +81,7 @@ nonisolated struct CapabilityTier: Sendable, Equatable {
                                        lidarSoundDepth: false,
                                        fullHapticProsody: true,
                                        sceneNarration: .continuous),
-                fpsCaps: FpsCaps(poseSampleHz: 60, signInferenceHz: 20))
+                fpsCaps: FpsCaps(poseSampleHz: 24, signInferenceHz: 20))
         case .a14floor:
             return CapabilityTier(
                 rung: .a14floor,
@@ -90,7 +90,7 @@ nonisolated struct CapabilityTier: Sendable, Equatable {
                                        lidarSoundDepth: false,
                                        fullHapticProsody: false,
                                        sceneNarration: .onDemand),
-                fpsCaps: FpsCaps(poseSampleHz: 30, signInferenceHz: 12))
+                fpsCaps: FpsCaps(poseSampleHz: 15, signInferenceHz: 12))
         }
     }
 

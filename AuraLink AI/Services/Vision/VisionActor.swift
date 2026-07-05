@@ -13,7 +13,7 @@
 //  single-iteration, and cancelling an iterator terminates the stream permanently. Start/stop is
 //  controlled upstream by the capture session; when capture is stopped, the loop simply idles.
 //
-//  Body pose is duty-cycled (every 3rd frame): torso anchors move far slower than hands, and the
+//  Body pose is duty-cycled (every 6th frame): torso anchors move far slower than hands, and the
 //  body request costs as much as the hand request. The latest anchors are carried forward.
 //
 
@@ -44,7 +44,9 @@ actor VisionActor: PoseProducing {
 
     private let handRequest = VNDetectHumanHandPoseRequest()
     private let bodyRequest = VNDetectHumanBodyPoseRequest()
-    private let bodyDutyCycle = 3
+    // Body pose is the expensive request and its anchors (shoulders) move slowly, so run it far
+    // less often than hand pose — this trims the capture→pose p95 spikes and thermal load.
+    private let bodyDutyCycle = 6
 
     private var loop: Task<Void, Never>?
     private var lastBody: BodyAnchors?
