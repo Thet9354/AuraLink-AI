@@ -18,6 +18,7 @@ final class AppContainer {
     let captureDiagnosticsViewModel: CaptureDiagnosticsViewModel
     let posePreviewViewModel: PosePreviewViewModel
     let enrollViewModel: EnrollViewModel
+    let recallViewModel: SignRecallViewModel
     let listenViewModel: ListenViewModel
     let governor: GovernorController
     let settings = AppSettings()
@@ -62,6 +63,9 @@ final class AppContainer {
                                                recorder: recorder,
                                                store: store,
                                                phraseStore: phraseStore)
+        self.recallViewModel = SignRecallViewModel(catalog: lexicon,
+                                                   store: store,
+                                                   phraseStore: phraseStore)
 
         // Phase 4: ambient audio → captions + sound events + haptic prosody.
         let haptics = HapticsActor()

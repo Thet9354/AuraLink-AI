@@ -106,15 +106,6 @@ struct PosePreviewScreen: View {
 
     // MARK: - Drawing
 
-    /// Bone chains: wrist → each finger, joint to joint.
-    private static let bones: [(HandJoint, HandJoint)] = [
-        (.wrist, .thumbCMC), (.thumbCMC, .thumbMP), (.thumbMP, .thumbIP), (.thumbIP, .thumbTip),
-        (.wrist, .indexMCP), (.indexMCP, .indexPIP), (.indexPIP, .indexDIP), (.indexDIP, .indexTip),
-        (.wrist, .middleMCP), (.middleMCP, .middlePIP), (.middlePIP, .middleDIP), (.middleDIP, .middleTip),
-        (.wrist, .ringMCP), (.ringMCP, .ringPIP), (.ringPIP, .ringDIP), (.ringDIP, .ringTip),
-        (.wrist, .littleMCP), (.littleMCP, .littlePIP), (.littlePIP, .littleDIP), (.littleDIP, .littleTip)
-    ]
-
     private func draw(hand: HandPose, color: Color, in context: inout GraphicsContext, size: CGSize) {
         let minConfidence: Float = 0.3
 
@@ -128,7 +119,7 @@ struct PosePreviewScreen: View {
         }
 
         var bonePath = Path()
-        for (a, b) in Self.bones {
+        for (a, b) in HandSkeleton.bones {
             guard let pa = screenPoint(a), let pb = screenPoint(b) else { continue }
             bonePath.move(to: pa)
             bonePath.addLine(to: pb)
