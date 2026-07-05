@@ -20,11 +20,18 @@ final class TranslateViewModel {
     let tier: CapabilityTier
 
     private let pipeline: any CaptionProducing
+    private let speech: SpeechSynthesizer
+    private let settings: AppSettings
     private var consumer: Task<Void, Never>?
 
-    init(pipeline: any CaptionProducing, tier: CapabilityTier) {
+    init(pipeline: any CaptionProducing,
+         tier: CapabilityTier,
+         speech: SpeechSynthesizer,
+         settings: AppSettings) {
         self.pipeline = pipeline
         self.tier = tier
+        self.speech = speech
+        self.settings = settings
     }
 
     func start() {
@@ -42,6 +49,9 @@ final class TranslateViewModel {
             while !Task.isCancelled {
                 guard let latest = await slot.take() else { break }
                 self.caption = latest
+                if self.settings.speakAloud, let utterance = latest.utterance {
+                    self.speech.speak(utterance)   // sign → speech
+                }
             }
         }
     }
@@ -50,6 +60,7 @@ final class TranslateViewModel {
         consumer?.cancel()
         consumer = nil
         isRunning = false
+        speech.stop()
         let pipeline = self.pipeline
         Task { await pipeline.stop() }
     }

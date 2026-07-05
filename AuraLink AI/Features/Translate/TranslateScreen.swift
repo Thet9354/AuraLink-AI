@@ -231,16 +231,18 @@ private struct FlowText: View {
 
 #Preview {
     let tier = CapabilityTier.baseline(for: .a17plus)
-    let vm = TranslateViewModel(pipeline: MockCaptionPipeline(tier: tier), tier: tier)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: "preview") ?? .standard)
+    let vm = TranslateViewModel(pipeline: MockCaptionPipeline(tier: tier), tier: tier,
+                                speech: SpeechSynthesizer(), settings: settings)
     let capture = CaptureActor()
     let vision = VisionActor()
     let store = ExemplarFileStore()
+    let phraseStore = CustomPhraseFileStore()
     let lexicon = SignLexicon(entries: [])
-    let settings = AppSettings(defaults: UserDefaults(suiteName: "preview") ?? .standard)
     let diagnostics = CaptureDiagnosticsViewModel(capture: capture, audio: AudioActor(), vision: vision)
     let posePreview = PosePreviewViewModel(capture: capture, vision: vision)
     let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
-    let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
+    let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store, phraseStore: phraseStore)
     let listen = ListenViewModel(listener: AudioListener(haptics: HapticsActor()), settings: settings)
     let governor = GovernorController(baseRung: .a17plus)
     return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview,

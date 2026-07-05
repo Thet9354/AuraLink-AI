@@ -15,6 +15,8 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section("Feedback") {
+                    Toggle("Speak signs aloud", isOn: $settings.speakAloud)
+                        .accessibilityHint("Speaks each recognized sign or phrase with on-device text-to-speech")
                     Toggle("Haptic prosody", isOn: $settings.hapticsEnabled)
                         .accessibilityHint("Feel a speaker's loudness and pitch through vibration in Listen mode")
                     Toggle("Larger captions", isOn: $settings.largeCaptions)

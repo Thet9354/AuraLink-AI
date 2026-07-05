@@ -2,14 +2,17 @@
 //  EnrollView.swift
 //  AuraLink AI
 //
-//  Catalog of the ~200-sign vocabulary with per-sign exemplar counts and a record button.
-//  Recording uses the front camera and the same segmentation as translation.
+//  Enrollment: create your own phrases (bind any text to a gesture) and record examples for them
+//  or the built-in catalog. Recording uses the front camera and the same segmentation as translation.
 //
 
 import SwiftUI
 
 struct EnrollView: View {
     @State private var model: EnrollViewModel
+    @State private var showingNewPhrase = false
+    @State private var newTitle = ""
+    @State private var newText = ""
 
     init(model: EnrollViewModel) {
         _model = State(initialValue: model)
@@ -30,10 +33,21 @@ struct EnrollView: View {
                     }
                 }
 
+                Section {
+                    Button {
+                        newTitle = ""; newText = ""; showingNewPhrase = true
+                    } label: {
+                        Label("New phrase", systemImage: "plus.bubble")
+                    }
+                    .disabled(model.recordingLexID != nil)
+                } footer: {
+                    Text("Bind any word or sentence to a gesture — it's spoken aloud when recognized.")
+                }
+
                 ForEach(model.categories, id: \.self) { category in
-                    Section(category.rawValue.capitalized) {
+                    Section(sectionTitle(category)) {
                         ForEach(model.entries(in: category)) { entry in
-                            row(entry)
+                            row(entry, isCustom: category == .custom)
                         }
                     }
                 }
@@ -51,22 +65,35 @@ struct EnrollView: View {
                     .accessibilityLabel("Enrollment options")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(model.readyCount)/\(model.lexicon.count) ready")
+                    Text("\(model.readyCount)/\(model.totalCount) ready")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+            }
+            .alert("New phrase", isPresented: $showingNewPhrase) {
+                TextField("Text to speak (e.g. I need help)", text: $newText)
+                TextField("Short label (optional)", text: $newTitle)
+                Button("Create") { model.createPhrase(title: newTitle, text: newText) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("You'll record a gesture for this next.")
             }
             .task { await model.refresh() }
         }
     }
 
-    private func row(_ entry: LexEntry) -> some View {
+    private func sectionTitle(_ category: LexEntry.Category) -> String {
+        category == .custom ? "My phrases" : category.rawValue.capitalized
+    }
+
+    private func row(_ entry: LexEntry, isCustom: Bool) -> some View {
         let count = model.count(for: entry.id)
         let isRecording = model.recordingLexID == entry.id
         return HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.english)
-                Text(entry.gloss).font(.caption2).foregroundStyle(.secondary)
+                Text(isCustom ? "custom" : entry.gloss)
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
             countBadge(count)
@@ -80,7 +107,9 @@ struct EnrollView: View {
             .disabled(model.recordingLexID != nil)
         }
         .swipeActions {
-            if count > 0 {
+            if isCustom {
+                Button("Delete", role: .destructive) { model.deletePhrase(entry) }
+            } else if count > 0 {
                 Button("Clear", role: .destructive) { model.clear(entry) }
             }
         }

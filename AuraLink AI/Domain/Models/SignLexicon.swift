@@ -22,9 +22,13 @@ nonisolated struct LexEntry: Sendable, Codable, Identifiable, Hashable {
     let category: Category
 
     nonisolated enum Category: String, Sendable, Codable, CaseIterable {
+        case custom   // user-created phrases; listed first in the enrollment UI
         case greeting, courtesy, response, need, food, health, emergency
         case question, place, direction, time, person, feeling, action, number
     }
+
+    /// A user-created phrase entry never gets ASL grammar mangling — its text is spoken as-is.
+    var isCustom: Bool { category == .custom }
 }
 
 /// The loaded catalog with id-keyed lookup.

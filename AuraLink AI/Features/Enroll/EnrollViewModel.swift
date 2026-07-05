@@ -17,6 +17,7 @@ final class EnrollViewModel {
     static let targetPerSign = 3
 
     private(set) var counts: [String: Int] = [:]
+    private(set) var customPhrases: [CustomPhrase] = []
     private(set) var recordingLexID: String?
     private(set) var statusText: String?
     private(set) var lastError: String?
@@ -24,29 +25,64 @@ final class EnrollViewModel {
     let lexicon: SignLexicon
     private let recorder: EnrollmentRecorder
     private let store: any ExemplarStoring
+    private let phraseStore: any CustomPhraseStoring
 
-    init(lexicon: SignLexicon, recorder: EnrollmentRecorder, store: any ExemplarStoring) {
+    init(lexicon: SignLexicon,
+         recorder: EnrollmentRecorder,
+         store: any ExemplarStoring,
+         phraseStore: any CustomPhraseStoring) {
         self.lexicon = lexicon
         self.recorder = recorder
         self.store = store
+        self.phraseStore = phraseStore
     }
 
+    /// Custom phrases first, then the catalog categories that have entries.
     var categories: [LexEntry.Category] {
-        LexEntry.Category.allCases.filter { !lexicon.entries(in: $0).isEmpty }
+        LexEntry.Category.allCases.filter { $0 == .custom ? !customPhrases.isEmpty
+                                                          : !lexicon.entries(in: $0).isEmpty }
     }
 
     func entries(in category: LexEntry.Category) -> [LexEntry] {
-        lexicon.entries(in: category)
+        category == .custom ? customPhrases.map(\.asLexEntry) : lexicon.entries(in: category)
     }
 
     func count(for lexID: String) -> Int { counts[lexID] ?? 0 }
 
     var readyCount: Int {
-        lexicon.entries.filter { count(for: $0.id) >= Self.targetPerSign }.count
+        let all = lexicon.entries + customPhrases.map(\.asLexEntry)
+        return all.filter { count(for: $0.id) >= Self.targetPerSign }.count
     }
+
+    var totalCount: Int { lexicon.count + customPhrases.count }
 
     func refresh() async {
         counts = (try? await store.counts()) ?? [:]
+        customPhrases = (try? await phraseStore.loadAll()) ?? []
+    }
+
+    func createPhrase(title: String, text: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        let phrase = CustomPhrase(title: trimmedTitle.isEmpty ? trimmedText : trimmedTitle,
+                                  text: trimmedText)
+        let phraseStore = self.phraseStore
+        Task { [weak self] in
+            try? await phraseStore.save(phrase)
+            self?.customPhrases.append(phrase)
+        }
+    }
+
+    func deletePhrase(_ entry: LexEntry) {
+        let phraseStore = self.phraseStore
+        let store = self.store
+        Task { [weak self] in
+            try? await phraseStore.remove(id: entry.id)
+            try? await store.removeAll(for: entry.id)   // and its recorded exemplars
+            self?.customPhrases.removeAll { $0.id == entry.id }
+            self?.counts[entry.id] = nil
+        }
     }
 
     func record(_ entry: LexEntry) {

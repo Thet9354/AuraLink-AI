@@ -23,6 +23,11 @@ final class AppSettings {
         didSet { defaults.set(largeCaptions, forKey: Keys.largeCaptions) }
     }
 
+    /// Speak recognized signs/phrases aloud (sign→speech).
+    var speakAloud: Bool {
+        didSet { defaults.set(speakAloud, forKey: Keys.speakAloud) }
+    }
+
     /// Whether first-launch onboarding has been completed.
     var hasOnboarded: Bool {
         didSet { defaults.set(hasOnboarded, forKey: Keys.onboarded) }
@@ -34,6 +39,7 @@ final class AppSettings {
         self.defaults = defaults
         self.hapticsEnabled = defaults.object(forKey: Keys.haptics) as? Bool ?? true
         self.largeCaptions = defaults.bool(forKey: Keys.largeCaptions)
+        self.speakAloud = defaults.object(forKey: Keys.speakAloud) as? Bool ?? true
         // UI tests skip onboarding to audit the main screen deterministically.
         if ProcessInfo.processInfo.arguments.contains("--uitest-skip-onboarding") {
             self.hasOnboarded = true
@@ -45,6 +51,7 @@ final class AppSettings {
     private enum Keys {
         static let haptics = "settings.hapticsEnabled"
         static let largeCaptions = "settings.largeCaptions"
+        static let speakAloud = "settings.speakAloud"
         static let onboarded = "settings.hasOnboarded"
     }
 }

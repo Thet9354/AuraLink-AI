@@ -35,17 +35,22 @@ final class AppContainer {
         let vision = VisionActor()
 
         let lexicon = LexiconLoader.loadBundled()
-        // Phase 5: exemplars encrypted at rest under a device-only key (biometric-adjacent data).
+        // Phase 5: exemplars + custom phrases encrypted at rest under a device-only key.
         let cryptor = (try? KeychainKeyProvider().key()).map(ExemplarCryptor.init(key:))
         let store = ExemplarFileStore(cryptor: cryptor)
+        let phraseStore = CustomPhraseFileStore(cryptor: cryptor)
 
-        // Phase 3: the real DTW translation graph behind the CaptionProducing seam — no UI change.
+        // The real DTW translation graph behind the CaptionProducing seam; custom phrases merge in.
         let pipeline = SignTranslationPipeline(capture: capture,
                                                vision: vision,
                                                lexicon: lexicon,
                                                store: store,
+                                               phraseStore: phraseStore,
                                                tier: tier)
-        self.translateViewModel = TranslateViewModel(pipeline: pipeline, tier: tier)
+        self.translateViewModel = TranslateViewModel(pipeline: pipeline,
+                                                     tier: tier,
+                                                     speech: SpeechSynthesizer(),
+                                                     settings: settings)
 
         self.captureDiagnosticsViewModel = CaptureDiagnosticsViewModel(capture: capture,
                                                                        audio: audio,
@@ -53,7 +58,10 @@ final class AppContainer {
         self.posePreviewViewModel = PosePreviewViewModel(capture: capture, vision: vision)
 
         let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
-        self.enrollViewModel = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
+        self.enrollViewModel = EnrollViewModel(lexicon: lexicon,
+                                               recorder: recorder,
+                                               store: store,
+                                               phraseStore: phraseStore)
 
         // Phase 4: ambient audio → captions + sound events + haptic prosody.
         let haptics = HapticsActor()
