@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import ImageIO
 import Observation
 
 @MainActor
@@ -18,6 +19,7 @@ final class PosePreviewViewModel {
     private(set) var stats: VisionStats?
     private(set) var isRunning = false
     private(set) var errorText: String?
+    private(set) var orientationName = "leftMirrored"
 
     private let capture: CaptureActor
     private let vision: VisionActor
@@ -26,6 +28,30 @@ final class PosePreviewViewModel {
     init(capture: CaptureActor, vision: VisionActor) {
         self.capture = capture
         self.vision = vision
+    }
+
+    /// Cycle the Vision image orientation live (on-device tuning). Pick the one where the skeleton
+    /// is upright and mirror-natural, and where "% hands" is highest.
+    func cycleOrientation() {
+        let vision = self.vision
+        Task { [weak self] in
+            let next = await vision.cycleOrientation()
+            self?.orientationName = Self.name(for: next)
+        }
+    }
+
+    private static func name(for orientation: CGImagePropertyOrientation) -> String {
+        switch orientation {
+        case .up: "up"
+        case .upMirrored: "upMirrored"
+        case .down: "down"
+        case .downMirrored: "downMirrored"
+        case .left: "left"
+        case .leftMirrored: "leftMirrored"
+        case .right: "right"
+        case .rightMirrored: "rightMirrored"
+        @unknown default: "unknown"
+        }
     }
 
     func start() {

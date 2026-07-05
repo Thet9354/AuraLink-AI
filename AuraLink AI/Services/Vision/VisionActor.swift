@@ -19,6 +19,7 @@
 
 import Vision
 import CoreMedia
+import ImageIO
 import os
 
 /// Point-in-time vision pipeline metrics for diagnostics and the Phase 2 latency gate.
@@ -47,6 +48,13 @@ actor VisionActor: PoseProducing {
 
     private var loop: Task<Void, Never>?
     private var lastBody: BodyAnchors?
+
+    // The CGImagePropertyOrientation applied to native (landscape) camera buffers so Vision sees an
+    // upright, mirror-correct hand. `.leftMirrored` is the front-camera / portrait default; the pose
+    // preview can cycle this live to confirm it on hardware.
+    private var orientation: CGImagePropertyOrientation = .leftMirrored
+    private static let orientationCycle: [CGImagePropertyOrientation] =
+        [.up, .upMirrored, .right, .rightMirrored, .down, .downMirrored, .left, .leftMirrored]
 
     // Governor-controlled processing rate. Capture is 60 fps; under thermal/battery pressure the
     // governor lowers this and we skip frames, cutting ANE/GPU load with a visible (choppier) effect.
@@ -87,6 +95,15 @@ actor VisionActor: PoseProducing {
     func setTargetHz(_ hz: Int) {
         targetHz = max(1, min(60, hz))
     }
+
+    /// Advance to the next candidate image orientation (pose-preview tuning). Returns the new one.
+    func cycleOrientation() -> CGImagePropertyOrientation {
+        let index = Self.orientationCycle.firstIndex(of: orientation) ?? Self.orientationCycle.count - 1
+        orientation = Self.orientationCycle[(index + 1) % Self.orientationCycle.count]
+        return orientation
+    }
+
+    func currentOrientation() -> CGImagePropertyOrientation { orientation }
 
     /// Applies frame-skipping before the (expensive) `process`.
     private func consume(_ token: FrameToken) {
@@ -148,8 +165,8 @@ actor VisionActor: PoseProducing {
 
         // Vision vends autoreleased observations; drain per frame.
         autoreleasepool {
-            // Capture is portrait-locked upstream (rotation baked into the buffer), so .up.
-            let handler = VNImageRequestHandler(cvPixelBuffer: token.pixelBuffer, orientation: .up)
+            // Native landscape buffer → Vision orientation maps it to upright, mirror-correct.
+            let handler = VNImageRequestHandler(cvPixelBuffer: token.pixelBuffer, orientation: orientation)
             let requests: [VNRequest] = runBody ? [handRequest, bodyRequest] : [handRequest]
             try? handler.perform(requests)
         }

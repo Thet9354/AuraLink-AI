@@ -37,8 +37,12 @@ struct PosePreviewScreen: View {
     private var skeleton: some View {
         Canvas { context, size in
             guard let pose = model.pose else { return }
+            // A lone hand is always drawn as the (stable) right-hand color to match how it's slotted
+            // for recognition; two hands keep their per-chirality colors.
+            let single = pose.hands.count == 1
             for hand in pose.hands {
-                draw(hand: hand, in: &context, size: size)
+                let color: Color = single ? .orange : (hand.chirality == .left ? .cyan : .orange)
+                draw(hand: hand, color: color, in: &context, size: size)
             }
         }
         .ignoresSafeArea()
@@ -49,6 +53,19 @@ struct PosePreviewScreen: View {
     private var overlay: some View {
         VStack {
             Spacer()
+            Button {
+                model.cycleOrientation()
+            } label: {
+                Label("Orientation: \(model.orientationName)", systemImage: "rotate.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.blue.opacity(0.6), in: Capsule())
+            }
+            .padding(.bottom, 10)
+            .accessibilityHint("Cycles the camera orientation until the skeleton looks upright")
+
             HStack(spacing: 16) {
                 statChip("hand.raised", "\(model.pose?.hands.count ?? 0)")
                 if let stats = model.stats {
@@ -98,15 +115,15 @@ struct PosePreviewScreen: View {
         (.wrist, .littleMCP), (.littleMCP, .littlePIP), (.littlePIP, .littleDIP), (.littleDIP, .littleTip)
     ]
 
-    private func draw(hand: HandPose, in context: inout GraphicsContext, size: CGSize) {
+    private func draw(hand: HandPose, color: Color, in context: inout GraphicsContext, size: CGSize) {
         let minConfidence: Float = 0.3
-        let color: Color = hand.chirality == .left ? .cyan : .orange
 
         func screenPoint(_ joint: HandJoint) -> CGPoint? {
             guard hand.confidences[joint.rawValue] >= minConfidence else { return nil }
             let p = hand.points[joint.rawValue]
-            // Mirror X (front camera), flip Y (Vision is bottom-left origin).
-            return CGPoint(x: (1 - CGFloat(p.x)) * size.width,
+            // Orientation/mirroring is handled in Vision; here only flip Y (Vision's bottom-left
+            // origin → SwiftUI's top-left).
+            return CGPoint(x: CGFloat(p.x) * size.width,
                            y: (1 - CGFloat(p.y)) * size.height)
         }
 

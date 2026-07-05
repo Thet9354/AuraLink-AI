@@ -155,16 +155,23 @@ nonisolated enum FeatureExtractor {
         return (true, normalized, wristRaw)
     }
 
-    /// Picks the hand for a chirality slot. A single hand of unknown chirality is slotted right
-    /// (statistically dominant); ambiguity resolves toward the more confident wrist.
+    /// Picks the hand for a chirality slot.
+    ///
+    /// When exactly ONE hand is present, always slot it into `.right` regardless of the chirality
+    /// label. Vision's left/right classification flickers frame-to-frame for a single hand, and
+    /// letting it steer the slot would scatter one physical hand's features across both slots —
+    /// wrecking DTW consistency. With two hands, match by chirality (falling back to left/right by
+    /// horizontal position if a label is unknown).
     private static func resolvedHand(_ chirality: Chirality, in observation: PoseObservation) -> HandPose? {
-        if let exact = observation.hand(chirality) { return exact }
-        if chirality == .right,
-           observation.hands.count == 1,
-           let only = observation.hands.first,
-           only.chirality == .unknown {
-            return only
+        if observation.hands.count == 1 {
+            return chirality == .right ? observation.hands.first : nil
         }
-        return nil
+        if let exact = observation.hand(chirality) { return exact }
+        // Two hands but a label is unknown: assign by image x-position (right slot = larger x).
+        guard observation.hands.count == 2 else { return nil }
+        let sorted = observation.hands.sorted {
+            $0.points[HandJoint.wrist.rawValue].x < $1.points[HandJoint.wrist.rawValue].x
+        }
+        return chirality == .right ? sorted.last : sorted.first
     }
 }

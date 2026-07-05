@@ -45,9 +45,11 @@ struct CaptureDiagnosticsView: View {
                         row("Frames with hands", String(format: "%.0f%%", report.vision.detectionRate * 100))
                     }
                     Section {
+                        let fpsOK = report.videoFps >= 55
+                        let poseOK = report.vision.framesProcessed > 0 && report.vision.latencyP95Ms <= 40
                         Text(gateVerdict(report))
                             .font(.footnote)
-                            .foregroundStyle(report.videoFps >= 55 ? .green : .orange)
+                            .foregroundStyle(fpsOK && poseOK ? .green : .orange)
                     }
                 }
 

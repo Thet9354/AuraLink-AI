@@ -89,11 +89,9 @@ actor CaptureActor: FrameProducing {
         guard session.canAddOutput(videoOutput) else { throw CaptureError.cannotAddOutput }
         session.addOutput(videoOutput)
 
-        // The vision pipeline assumes portrait; lock the connection to portrait (90°).
-        if let connection = videoOutput.connection(with: .video),
-           connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
-        }
+        // Buffers are delivered in the camera's native (landscape) orientation; the VisionActor
+        // supplies the correct CGImagePropertyOrientation so Vision analyzes an upright hand.
+        // (Rotating the connection here as well caused a double transform → slanted skeleton.)
 
         configure60fps(on: device)
         isConfigured = true
