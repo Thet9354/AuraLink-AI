@@ -18,6 +18,7 @@ final class AppContainer {
     let captureDiagnosticsViewModel: CaptureDiagnosticsViewModel
     let posePreviewViewModel: PosePreviewViewModel
     let enrollViewModel: EnrollViewModel
+    let listenViewModel: ListenViewModel
 
     init() {
         let rung = CapabilityProbe.detectRung()
@@ -49,5 +50,10 @@ final class AppContainer {
 
         let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
         self.enrollViewModel = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
+
+        // Phase 4: ambient audio → captions + sound events + haptic prosody.
+        let haptics = HapticsActor()
+        let listener = AudioListener(haptics: haptics)
+        self.listenViewModel = ListenViewModel(listener: listener)
     }
 }

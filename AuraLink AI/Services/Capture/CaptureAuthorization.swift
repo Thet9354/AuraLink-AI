@@ -7,8 +7,27 @@
 //
 
 import AVFoundation
+import Speech
 
 nonisolated enum CaptureAuthorization {
+
+    /// Ensures speech-recognition access, prompting once if undetermined. On-device recognition is
+    /// forced at request time; this only governs whether the app may transcribe at all.
+    static func ensureSpeech() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status == .authorized)
+                }
+            }
+        default:
+            return false
+        }
+    }
+
 
     /// Ensures camera access, prompting once if undetermined. Returns whether access is granted.
     static func ensureVideo() async -> Bool {

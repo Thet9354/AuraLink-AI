@@ -22,6 +22,7 @@ is met. Dual ceilings reflect the A14→A17 quality-ladder decision.
 - `latency` — glass→caption and per-stage intervals:
   - `captureToPose` (Phase 2) — camera frame → pose/features.
   - `segmentToCaption` (Phase 3) — segment close → rendered caption (DTW match + grammar).
+  - sound onset → haptic (Phase 4) — SoundAnalysis event → Taptic pattern (≤ 100 ms).
 - `pipeline` — pipeline lifecycle and per-stage intervals (inference, segmentation).
 - `governor` — tier transitions (thermal/battery/memory de-rating), emitted on every change.
 

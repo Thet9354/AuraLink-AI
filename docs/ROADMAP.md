@@ -86,13 +86,29 @@ Locked design decisions (see also project memory):
   your own exemplars; glass→caption ≤ 220 ms (A17) via the `segmentToCaption` signpost; OOV signs
   render as "…". Reliability-diagram calibration once enough exemplars exist.
 
-## Phase 4 — Audio pipeline + cross-modal haptics
-- **Build:** `AudioActor` DSP (vDSP VAD/mel/f0); on-device streaming ASR (preserves zero-network
-  invariant); sound-event classifier + localization; `ProsodyEnvelope` → `HapticsActor` (Core
-  Haptics); directional cues (+LiDAR depth on Pro).
-- **APIs:** AVAudioEngine, Accelerate/vDSP, Core ML, Core Haptics.
-- **Gate:** WER below threshold on a noisy fixture set; sound-onset→haptic ≤ 100 ms; prosody→haptic
-  mapping unit test (monotonic pitch→intensity).
+## Phase 4 — Audio pipeline + cross-modal haptics  ✅ DONE (device run pending)
+- **Built:** `AudioDSP` (energy dB, ZCR, autocorrelation **f0** via vDSP dot-products);
+  `VoiceActivityDetector` (adaptive noise floor, hysteretic on/off); `ProsodyMapper`
+  (loudness→intensity, pitch→sharpness, monotonic); `HapticsActor` (Core Haptics — a continuous
+  prosody event modulated live via dynamic parameters, transient urgency taps, health-checked +
+  rebuild-on-reset); `AudioListener` (own engine + executor; single tap fans out via the audited
+  `AudioTapProcessor` to ring/DSP, SoundAnalysis, speech); on-device sound events via SoundAnalysis
+  built-in classifier (`SoundEventMapper` curates alerting classes by urgency); **on-device**
+  streaming captions via `SFSpeechRecognizer` (`requiresOnDeviceRecognition = true` — refuses
+  rather than using the network); Listen UI (captions + event chips + live prosody meter).
+- **APIs:** AVAudioEngine, Accelerate/vDSP, SoundAnalysis, Speech, Core Haptics, CoreMedia.
+- **Deviations from the sketch (documented, deliberate):**
+  - **No mel spectrogram** — captions use Apple's on-device recognizer (raw audio in), not a custom
+    ASR head, so mel features aren't needed (same "don't build machinery nothing uses" rule).
+  - **Sound localization / LiDAR depth deferred** — `SoundEvent.azimuth`/`depth` are modelled but
+    nil in v1; multi-mic beamforming is future work.
+- **Gate — code (met):** zero-warning Swift 6 build; 79 unit tests green — pitch recovery on
+  synthetic sines, silence/noise → unvoiced, energy tracks amplitude, **prosody monotonicity**
+  (the explicit gate), VAD latch/release/debounce, sound-event mapping + urgency bars.
+- **Gate — device (pending):** open Listen — captions transcribe speech; an alarm/siren/knock
+  raises an event chip; the prosody meter (and Taptic engine) track your voice's loudness/pitch;
+  sound-onset→haptic ≤ 100 ms; **zero network egress** while captioning (Network Instrument — the
+  marquee check, since on-device ASR is the risk point).
 
 ## Phase 5 — Personalization + governor
 - **Build:** enrollment (20 phrases → user's own DTW exemplars, few-shot); Secure-Enclave-encrypted

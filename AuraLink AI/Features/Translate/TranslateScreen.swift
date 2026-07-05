@@ -14,18 +14,22 @@ struct TranslateScreen: View {
     @State private var showingDiagnostics = false
     @State private var showingPosePreview = false
     @State private var showingEnroll = false
+    @State private var showingListen = false
     private let diagnostics: CaptureDiagnosticsViewModel
     private let posePreview: PosePreviewViewModel
     private let enroll: EnrollViewModel
+    private let listen: ListenViewModel
 
     init(model: TranslateViewModel,
          diagnostics: CaptureDiagnosticsViewModel,
          posePreview: PosePreviewViewModel,
-         enroll: EnrollViewModel) {
+         enroll: EnrollViewModel,
+         listen: ListenViewModel) {
         _model = State(initialValue: model)
         self.diagnostics = diagnostics
         self.posePreview = posePreview
         self.enroll = enroll
+        self.listen = listen
     }
 
     var body: some View {
@@ -50,6 +54,9 @@ struct TranslateScreen: View {
         .sheet(isPresented: $showingEnroll) {
             EnrollView(model: enroll)
         }
+        .sheet(isPresented: $showingListen) {
+            ListenScreen(model: listen)
+        }
     }
 
     private var header: some View {
@@ -63,6 +70,12 @@ struct TranslateScreen: View {
                 .padding(.vertical, 4)
                 .background(.quaternary, in: Capsule())
                 .accessibilityLabel("Device capability tier \(model.tier.badge)")
+            Button {
+                showingListen = true
+            } label: {
+                Image(systemName: "ear")
+            }
+            .accessibilityLabel("Listen to ambient audio")
             Button {
                 showingEnroll = true
             } label: {
@@ -182,5 +195,7 @@ private struct FlowText: View {
     let posePreview = PosePreviewViewModel(capture: capture, vision: vision)
     let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
     let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
-    return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview, enroll: enroll)
+    let listen = ListenViewModel(listener: AudioListener(haptics: HapticsActor()))
+    return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview,
+                           enroll: enroll, listen: listen)
 }
