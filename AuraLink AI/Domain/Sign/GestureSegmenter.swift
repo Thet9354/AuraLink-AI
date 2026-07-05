@@ -2,17 +2,21 @@
 //  GestureSegmenter.swift
 //  AuraLink AI
 //
-//  Bounds candidate signs in the continuous feature stream using motion energy with hysteresis:
+//  Turns the continuous feature stream into recognizable sign windows using a SETTLE-triggered
+//  model: a sign is recognized the moment the hand holds still, using the settled handshape itself.
 //
-//      idle ── energy > θ_open for minOpen seconds ──► active
-//      active ── energy < θ_close for minClose seconds (pause) ──► close segment
-//      active ── maxSegment seconds reached ──► force-close
+//      hand appears → accumulate a rolling window
+//      motion drops below `stillThreshold` for `settleSeconds` → EMIT the window (once)
+//      motion rises above `moveThreshold` → re-arm for the next sign
+//      hand leaves → reset
 //
-//  Timing is measured in SECONDS from each frame's capture timestamp, NOT in frame counts — so the
-//  same behavior holds whether the pose front-end runs at 60, 30, or (under the thermal governor)
-//  15 fps. θ_open > θ_close (hysteresis) so jitter can't flap the state. A pre-roll window keeps the
-//  frames just before the trigger so the onset isn't clipped. Segments shorter than the minimum are
-//  discarded as twitches; the trailing pause frames are trimmed.
+//  Why settle-triggered (not motion-in / pause-out): people show a sign and briefly HOLD it. A
+//  motion-gated segmenter would capture only the entry motion and trim away the held handshape —
+//  the actual sign — giving unreliable matches, and a purely static hold would never trigger. This
+//  model recognizes the stable pose, works whether the sign is dynamic or held, and fires promptly.
+//
+//  `moveThreshold` > `stillThreshold` is the hysteresis that emits exactly once per hold.
+//  Timing is in SECONDS from frame timestamps, so it is identical at any pose frame rate.
 //
 //  Pure value-type state machine — owned by an actor, fully unit-testable with synthetic frames.
 //
@@ -20,38 +24,24 @@
 nonisolated struct GestureSegmenter {
 
     struct Config: Sendable {
-        /// Energy (image-normalized units/second) that opens a segment. Above resting hand jitter.
-        var openThreshold: Float = 0.8
-        /// Energy below which a frame counts as rest. Must be < openThreshold (hysteresis).
-        var closeThreshold: Float = 0.35
-        /// Sustained energetic time required to open (rejects single-frame spikes).
-        var minOpenSeconds: Double = 0.08
-        /// Sustained rest time required to close — the pause that confirms a sign ended. This is the
-        /// dominant contributor to perceived glass-to-caption latency; kept short but safe.
-        var minCloseSeconds: Double = 0.10
-        /// Segments shorter than this (after trimming) are discarded as twitches.
-        var minSegmentSeconds: Double = 0.20
-        /// Absolute floor of frames a segment needs for a meaningful DTW comparison.
-        var minSegmentFrames: Int = 4
-        /// Force-close bound — no sign lasts this long.
-        var maxSegmentSeconds: Double = 5.0
-        /// Time window kept before the open trigger so the sign onset is included.
-        var preRollSeconds: Double = 0.15
+        /// Motion energy below this means the hand is settling toward a hold.
+        var stillThreshold: Float = 0.40
+        /// Motion energy above this re-arms the segmenter for the next sign (a deliberate move).
+        var moveThreshold: Float = 0.70
+        /// How long motion must stay below `stillThreshold` before the hold is recognized.
+        var settleSeconds: Double = 0.14
+        /// Trailing time window of hand-present frames included in the recognized segment.
+        var windowSeconds: Double = 0.5
+        /// Minimum frames for a meaningful DTW comparison.
+        var minFrames: Int = 4
 
         init() {}
     }
 
-    private enum State {
-        case idle
-        case active
-    }
-
     let config: Config
-    private var state: State = .idle
-    private var preRoll: [FeatureVector] = []
-    private var aboveStart: Double?          // when the current above-open streak began
-    private var belowStart: Double?          // when the current below-close (rest) streak began
-    private var frames: [FeatureVector] = []
+    private var window: [FeatureVector] = []
+    private var lowStart: Double?            // when the current below-still streak began
+    private var armed = true                 // may we emit for the current hold?
 
     init(config: Config = Config()) {
         self.config = config
@@ -89,85 +79,57 @@ nonisolated struct GestureSegmenter {
         return best
     }
 
-    /// Feed one frame; returns a closed segment when one completes.
+    /// Feed one frame; returns a recognized segment when a settled hold completes.
     mutating func ingest(_ frame: FeatureVector) -> GestureSegment? {
-        let energy = Self.motionEnergy(of: frame)
+        let handPresent = frame.leftHandValid || frame.rightHandValid
         let t = frame.timeSeconds
 
-        switch state {
-        case .idle:
-            appendPreRoll(frame, now: t)
-            if energy >= config.openThreshold {
-                if aboveStart == nil { aboveStart = t }
-                if t - (aboveStart ?? t) >= config.minOpenSeconds {
-                    frames = preRoll                 // seed with the onset
-                    state = .active
-                    aboveStart = nil
-                    belowStart = nil
-                }
-            } else {
-                aboveStart = nil
-            }
-            return nil
-
-        case .active:
-            frames.append(frame)
-
-            if let first = frames.first, t - first.timeSeconds >= config.maxSegmentSeconds {
-                return close(reason: .maxLength)
-            }
-
-            if energy < config.closeThreshold {
-                if belowStart == nil { belowStart = t }
-                if t - (belowStart ?? t) >= config.minCloseSeconds {
-                    return close(reason: .pause)
-                }
-            } else {
-                belowStart = nil
-            }
+        guard handPresent else {
+            // Hand gone: drop the hold and re-arm for the next appearance.
+            window.removeAll()
+            lowStart = nil
+            armed = true
             return nil
         }
-    }
 
-    /// Abandon any in-progress segment (e.g. capture stopped).
-    mutating func reset() {
-        state = .idle
-        aboveStart = nil
-        belowStart = nil
-        frames.removeAll()
-        preRoll.removeAll()
-    }
-
-    private mutating func appendPreRoll(_ frame: FeatureVector, now t: Double) {
-        preRoll.append(frame)
-        while let first = preRoll.first, t - first.timeSeconds > config.preRollSeconds {
-            preRoll.removeFirst()
+        // Maintain a rolling window of the most recent hand-present frames.
+        window.append(frame)
+        while let first = window.first, t - first.timeSeconds > config.windowSeconds {
+            window.removeFirst()
         }
-    }
 
-    private mutating func close(reason: GestureSegment.ClosedReason) -> GestureSegment? {
-        // On a pause close, drop the trailing rest frames that only served the close dwell.
-        let trimmed: [FeatureVector]
-        if reason == .pause, let below = belowStart {
-            trimmed = frames.filter { $0.timeSeconds < below }
+        let energy = Self.motionEnergy(of: frame)
+
+        if energy >= config.moveThreshold {
+            // A deliberate move: this begins a (new) sign; allow the next hold to emit.
+            armed = true
+            lowStart = nil
+            return nil
+        }
+
+        if energy < config.stillThreshold {
+            if lowStart == nil { lowStart = t }
+            if armed,
+               t - (lowStart ?? t) >= config.settleSeconds,
+               window.count >= config.minFrames,
+               let first = window.first, let last = window.last {
+                armed = false          // emit once per hold
+                return GestureSegment(frames: window,
+                                      startSeconds: first.timeSeconds,
+                                      endSeconds: last.timeSeconds,
+                                      closedReason: .pause)
+            }
         } else {
-            trimmed = frames
+            // Between still and move: transitioning, neither settling nor re-arming.
+            lowStart = nil
         }
+        return nil
+    }
 
-        state = .idle
-        aboveStart = nil
-        belowStart = nil
-        frames.removeAll()
-        preRoll.removeAll()
-
-        guard let first = trimmed.first, let last = trimmed.last,
-              trimmed.count >= config.minSegmentFrames,
-              last.timeSeconds - first.timeSeconds >= config.minSegmentSeconds else {
-            return nil   // a twitch, not a sign
-        }
-        return GestureSegment(frames: trimmed,
-                              startSeconds: first.timeSeconds,
-                              endSeconds: last.timeSeconds,
-                              closedReason: reason)
+    /// Abandon any in-progress hold (e.g. capture stopped).
+    mutating func reset() {
+        window.removeAll()
+        lowStart = nil
+        armed = true
     }
 }

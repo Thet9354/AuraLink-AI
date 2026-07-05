@@ -70,6 +70,13 @@ actor ExemplarFileStore: ExemplarStoring {
         }
     }
 
+    func removeEverything() throws {
+        try ensureDirectory()
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory,
+                                                                  includingPropertiesForKeys: nil)) ?? []
+        for url in files { try? FileManager.default.removeItem(at: url) }
+    }
+
     private func decode(_ raw: Data) throws -> SignExemplar {
         let json = try cryptor?.decrypt(raw) ?? raw
         return try decoder.decode(SignExemplar.self, from: json)

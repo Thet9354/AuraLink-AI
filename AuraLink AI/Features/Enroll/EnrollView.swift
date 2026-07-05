@@ -41,6 +41,15 @@ struct EnrollView: View {
             .navigationTitle("Enroll signs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Button("Clear all signs", role: .destructive) { model.clearAll() }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .disabled(model.recordingLexID != nil)
+                    .accessibilityLabel("Enrollment options")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Text("\(model.readyCount)/\(model.lexicon.count) ready")
                         .font(.caption.monospacedDigit())

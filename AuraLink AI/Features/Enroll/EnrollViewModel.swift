@@ -82,4 +82,12 @@ final class EnrollViewModel {
             self?.counts[entry.id] = 0
         }
     }
+
+    func clearAll() {
+        let store = self.store
+        Task { [weak self] in
+            try? await store.removeEverything()
+            self?.counts = [:]
+        }
+    }
 }

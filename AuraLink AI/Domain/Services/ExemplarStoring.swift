@@ -19,4 +19,7 @@ nonisolated protocol ExemplarStoring: Sendable {
 
     /// Remove all exemplars for a sign (re-recording flow).
     func removeAll(for lexID: String) async throws
+
+    /// Remove every exemplar (full personalization reset).
+    func removeEverything() async throws
 }
