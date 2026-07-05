@@ -21,7 +21,8 @@ enum FeatureFactory {
                       time: Double,
                       seq: UInt64,
                       rightValid: Bool = true,
-                      wrist: SIMD2<Float> = SIMD2(0.5, 0.5)) -> FeatureVector {
+                      wrist: SIMD2<Float> = SIMD2(0.5, 0.5),
+                      secondaryWrist: SIMD2<Float>? = nil) -> FeatureVector {
         var v = [Float](repeating: 0, count: Layout.dimension)
         if rightValid {
             v[Layout.rightValidIndex] = 1
@@ -32,12 +33,14 @@ enum FeatureFactory {
             // Wrist velocity along +x gives the requested speed (drives motion energy).
             v[Layout.rightWristVelocityStart] = wristSpeed
         }
+        if secondaryWrist != nil { v[Layout.leftValidIndex] = 1 }
         return FeatureVector(values: v,
                              timeSeconds: time,
                              seq: seq,
-                             leftHandValid: false,
+                             leftHandValid: secondaryWrist != nil,
                              rightHandValid: rightValid,
-                             primaryWrist: rightValid ? wrist : nil)
+                             primaryWrist: rightValid ? wrist : nil,
+                             secondaryWrist: secondaryWrist)
     }
 
     /// A resting frame: hand present but motionless (below the close threshold).

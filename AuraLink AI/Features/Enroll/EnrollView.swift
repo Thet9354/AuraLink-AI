@@ -13,6 +13,7 @@ struct EnrollView: View {
     @State private var showingNewPhrase = false
     @State private var newTitle = ""
     @State private var newText = ""
+    @State private var query = ""
 
     init(model: EnrollViewModel) {
         _model = State(initialValue: model)
@@ -44,14 +45,15 @@ struct EnrollView: View {
                     Text("Bind any word or sentence to a gesture — it's spoken aloud when recognized.")
                 }
 
-                ForEach(model.categories, id: \.self) { category in
+                ForEach(model.matchingCategories(query), id: \.self) { category in
                     Section(sectionTitle(category)) {
-                        ForEach(model.entries(in: category)) { entry in
+                        ForEach(model.entries(in: category, matching: query)) { entry in
                             row(entry, isCustom: category == .custom)
                         }
                     }
                 }
             }
+            .searchable(text: $query, prompt: "Search signs")
             .navigationTitle("Enroll signs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

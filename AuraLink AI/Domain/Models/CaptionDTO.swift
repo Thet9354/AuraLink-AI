@@ -59,6 +59,8 @@ nonisolated struct CaptionDTO: Sendable, Identifiable {
     /// The text just recognized this update, to be spoken aloud once. `nil` when nothing new/spoken
     /// (e.g. an unknown sign or a system message).
     var utterance: String?
+    /// The runner-up sign, surfaced as "did you mean…?" when the match confidence is low.
+    var alternative: String?
 
     init(id: UUID = UUID(),
          spans: [StyledSpan],
@@ -66,7 +68,8 @@ nonisolated struct CaptionDTO: Sendable, Identifiable {
          latencyMs: Int,
          source: CaptionSource,
          timestamp: Date,
-         utterance: String? = nil) {
+         utterance: String? = nil,
+         alternative: String? = nil) {
         self.id = id
         self.spans = spans
         self.band = band
@@ -74,6 +77,7 @@ nonisolated struct CaptionDTO: Sendable, Identifiable {
         self.source = source
         self.timestamp = timestamp
         self.utterance = utterance
+        self.alternative = alternative
     }
 
     var plainText: String {

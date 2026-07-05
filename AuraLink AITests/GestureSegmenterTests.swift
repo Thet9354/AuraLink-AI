@@ -79,6 +79,22 @@ struct GestureSegmenterTests {
         #expect(run(held(10) + absent(4) + held(10)).count == 2)
     }
 
+    @Test func twoHandedSettlesOnlyWhenBothHandsHold() {
+        // Right hand held throughout; left hand moving for the first stretch, then held.
+        var seg = GestureSegmenter()
+        var emits = 0
+        for i in 0..<24 {
+            let t = Double(i) / fps
+            // Left wrist keeps moving for the first 12 frames, then holds.
+            let leftX: Float = i < 12 ? 0.2 + Float(i) * 0.03 : 0.6
+            let left = SIMD2<Float>(leftX, 0.5)
+            let frame = FeatureFactory.frame(seed: 1, wristSpeed: 0, time: t, seq: UInt64(i),
+                                             wrist: SIMD2(0.4, 0.5), secondaryWrist: left)
+            if seg.ingest(frame) != nil { emits += 1 }
+        }
+        #expect(emits == 1)   // did not fire while the left hand was still moving
+    }
+
     @Test func smallWristJitterStillSettles() {
         // A held hand with sub-stillRadius jitter must still be recognized (the real-world case).
         let jittered: [SIMD2<Float>?] = (0..<15).map { i in

@@ -127,8 +127,9 @@ actor SignTranslationPipeline: CaptionProducing {
         lastSegmentEnd = segment.endSeconds
 
         var spokenText: String?
+        var alternativeText: String?
         switch matcher.match(segment, previousLexID: previousLexID) {
-        case .matched(let best, _):
+        case .matched(let best, let alternatives):
             // Suppress an immediate repeat of the same sign — one hold must not fire twice.
             if best.entry.id == lastMatchLexID, segment.endSeconds - lastMatchEnd < repeatGapSeconds {
                 return
@@ -138,6 +139,10 @@ actor SignTranslationPipeline: CaptionProducing {
             sentence.append(GlossGrammar.Item(entry: best.entry, confidence: best.confidence))
             previousLexID = best.entry.id
             spokenText = best.entry.english   // spoken aloud by the view model
+            // When unsure, surface the runner-up as "did you mean…?".
+            if best.confidence < 0.65, let runnerUp = alternatives.first {
+                alternativeText = runnerUp.entry.english
+            }
 
         case .unknown:
             // Motion that matched nothing in the vocabulary: an explicit, honest gap.
@@ -168,7 +173,8 @@ actor SignTranslationPipeline: CaptionProducing {
                              latencyMs: latencyMs,
                              source: .sign,
                              timestamp: .now,
-                             utterance: spokenText)
+                             utterance: spokenText,
+                             alternative: alternativeText)
         await output.put(dto)
     }
 }

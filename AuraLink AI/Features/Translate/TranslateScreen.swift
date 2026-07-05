@@ -136,10 +136,16 @@ struct TranslateScreen: View {
                 FlowText(spans: caption.spans, large: settings.largeCaptions)
                     .animation(.easeInOut(duration: 0.15), value: caption.id)
                 confidenceLabel(caption.band)
+                if let alternative = caption.alternative {
+                    Text("did you mean “\(alternative)”?")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(caption.plainText)
-            .accessibilityValue(confidenceWord(caption.band))
+            .accessibilityValue(caption.alternative.map { "\(confidenceWord(caption.band)). Did you mean \($0)?" }
+                                ?? confidenceWord(caption.band))
         } else {
             Text(model.isRunning ? "Signing…" : "Tap Start, then sign to the camera")
                 .font(.title3)

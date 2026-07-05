@@ -89,12 +89,14 @@ nonisolated enum FeatureExtractor {
         next.previousRightWristRaw = right.wristRaw
         values[Layout.rightValidIndex] = right.valid ? 1 : 0
 
+        let bothPresent = right.wristRaw != nil && left.wristRaw != nil
         let vector = FeatureVector(values: values,
                                    timeSeconds: observation.timeSeconds,
                                    seq: observation.seq,
                                    leftHandValid: left.valid,
                                    rightHandValid: right.valid,
-                                   primaryWrist: right.wristRaw ?? left.wristRaw)
+                                   primaryWrist: right.wristRaw ?? left.wristRaw,
+                                   secondaryWrist: bothPresent ? left.wristRaw : nil)
         return (vector, next)
     }
 

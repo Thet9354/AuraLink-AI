@@ -27,10 +27,14 @@ actor EnrollmentRecorder {
         self.store = store
     }
 
-    /// Captures the next complete gesture segment and saves it as an exemplar for `lexID`.
-    /// The caller performs one sign; the segmenter's pause detection closes the recording.
-    /// Returns the new exemplar count for that sign.
-    func recordOne(for lexID: String, timeoutSeconds: Double = 20) async throws -> Int {
+    /// Records `count` exemplars in one continuous capture session. The user performs the sign,
+    /// holds (one saved), moves the hand to re-arm, holds again — `onSaved` fires after each so the
+    /// UI can auto-advance ("2 of 3"). Keeping capture open across reps avoids restart lag.
+    /// Returns the final exemplar count for the sign.
+    func recordSession(for lexID: String,
+                       count: Int,
+                       perRepTimeoutSeconds: Double = 20,
+                       onSaved: @escaping @Sendable (Int) -> Void) async throws -> Int {
         await vision.attach(to: capture.frames)
         let features = await vision.subscribeFeatures()
 
@@ -42,18 +46,24 @@ actor EnrollmentRecorder {
         defer { Task { await self.capture.stop() } }
 
         var segmenter = GestureSegmenter()
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var saved = 0
+        var deadline = Date().addingTimeInterval(perRepTimeoutSeconds)
 
         for await feature in features {
             if let segment = segmenter.ingest(feature) {
                 try await store.save(SignExemplar(lexID: lexID, segment: segment))
-                let counts = (try? await store.counts()) ?? [:]
-                return counts[lexID] ?? 1
+                saved += 1
+                onSaved(saved)
+                if saved >= count { break }
+                deadline = Date().addingTimeInterval(perRepTimeoutSeconds)   // reset for the next rep
             }
             if Date() > deadline {
-                throw RecordingError.timedOut
+                if saved == 0 { throw RecordingError.timedOut }
+                break   // some reps saved; stop waiting for the rest
             }
         }
-        throw RecordingError.timedOut
+
+        let counts = (try? await store.counts()) ?? [:]
+        return counts[lexID] ?? saved
     }
 }

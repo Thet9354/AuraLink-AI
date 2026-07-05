@@ -85,29 +85,60 @@ final class EnrollViewModel {
         }
     }
 
+    /// Records enough reps to reach the per-sign target (or one more if already full), with a
+    /// countdown and live "N of M" auto-advance. The user holds the sign, moves, holds again.
     func record(_ entry: LexEntry) {
         guard recordingLexID == nil else { return }
+        let already = count(for: entry.id)
+        let reps = already >= Self.targetPerSign ? 1 : Self.targetPerSign - already
+
         recordingLexID = entry.id
-        statusText = "Sign “\(entry.english)” now — pause when done"
         lastError = nil
 
         let recorder = self.recorder
         Task { [weak self] in
-            do {
-                let newCount = try await recorder.recordOne(for: entry.id)
-                self?.counts[entry.id] = newCount
-                self?.statusText = "Saved “\(entry.english)” (\(newCount))"
-            } catch EnrollmentRecorder.RecordingError.cameraUnavailable {
-                self?.lastError = "Camera unavailable — run on a device."
-                self?.statusText = nil
-            } catch EnrollmentRecorder.RecordingError.timedOut {
-                self?.lastError = "No sign detected — try again."
-                self?.statusText = nil
-            } catch {
-                self?.lastError = String(describing: error)
-                self?.statusText = nil
+            guard let self else { return }
+            for countdown in [3, 2, 1] {
+                self.statusText = "Get ready to sign “\(entry.english)”… \(countdown)"
+                try? await Task.sleep(for: .seconds(1))
             }
-            self?.recordingLexID = nil
+            self.statusText = "Hold the sign — recording \(reps)…"
+
+            do {
+                let final = try await recorder.recordSession(for: entry.id, count: reps) { saved in
+                    Task { @MainActor [weak self] in
+                        self?.counts[entry.id] = already + saved
+                        self?.statusText = "Recorded \(already + saved) of \(Self.targetPerSign) — hold again"
+                    }
+                }
+                self.counts[entry.id] = final
+                self.statusText = "Saved “\(entry.english)” (\(final))"
+            } catch EnrollmentRecorder.RecordingError.cameraUnavailable {
+                self.lastError = "Camera unavailable — run on a device."
+                self.statusText = nil
+            } catch EnrollmentRecorder.RecordingError.timedOut {
+                self.lastError = "No sign detected — try again."
+                self.statusText = nil
+            } catch {
+                self.lastError = String(describing: error)
+                self.statusText = nil
+            }
+            self.recordingLexID = nil
+        }
+    }
+
+    // MARK: - Search
+
+    func matchingCategories(_ query: String) -> [LexEntry.Category] {
+        categories.filter { !entries(in: $0, matching: query).isEmpty }
+    }
+
+    func entries(in category: LexEntry.Category, matching query: String) -> [LexEntry] {
+        let base = entries(in: category)
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return base }
+        return base.filter {
+            $0.english.localizedCaseInsensitiveContains(q) || $0.gloss.localizedCaseInsensitiveContains(q)
         }
     }
 

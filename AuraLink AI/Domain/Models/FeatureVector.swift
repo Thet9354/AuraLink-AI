@@ -23,19 +23,24 @@ nonisolated struct FeatureVector: Sendable {
     /// segmenter uses to detect a held sign (finger-joint velocity is too noisy for that). `nil`
     /// when no hand is present. Not part of the DTW feature layout.
     var primaryWrist: SIMD2<Float>?
+    /// The second hand's raw wrist when two hands are present — so a two-handed sign only settles
+    /// once BOTH hands hold still. `nil` when one (or no) hand is present.
+    var secondaryWrist: SIMD2<Float>?
 
     init(values: [Float],
          timeSeconds: Double,
          seq: UInt64,
          leftHandValid: Bool,
          rightHandValid: Bool,
-         primaryWrist: SIMD2<Float>? = nil) {
+         primaryWrist: SIMD2<Float>? = nil,
+         secondaryWrist: SIMD2<Float>? = nil) {
         self.values = values
         self.timeSeconds = timeSeconds
         self.seq = seq
         self.leftHandValid = leftHandValid
         self.rightHandValid = rightHandValid
         self.primaryWrist = primaryWrist
+        self.secondaryWrist = secondaryWrist
     }
 
     /// True when no hand contributed features — segmentation treats runs of these as rest.

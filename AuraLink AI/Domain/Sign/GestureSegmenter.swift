@@ -104,20 +104,15 @@ nonisolated struct GestureSegmenter {
         }
         guard armed else { return nil }
 
-        // Settled? Every wrist in the last `settleSeconds` sits within a small bounding box.
+        // Settled? Every present wrist in the last `settleSeconds` sits within a small box. A
+        // two-handed sign only settles when BOTH hands hold still.
         let recent = window.filter { t - $0.timeSeconds <= config.settleSeconds }
         guard recent.count >= config.minFrames else { return nil }
-        let wrists = recent.compactMap(\.primaryWrist)
-        guard wrists.count == recent.count else { return nil }
-
-        let xs = wrists.map(\.x)
-        let ys = wrists.map(\.y)
-        let extentX = (xs.max() ?? 0) - (xs.min() ?? 0)
-        let extentY = (ys.max() ?? 0) - (ys.min() ?? 0)
-        guard extentX < config.stillRadius, extentY < config.stillRadius,
-              let first = window.first, let last = window.last else {
+        guard isStable(recent, \.primaryWrist) else { return nil }
+        if recent.allSatisfy({ $0.secondaryWrist != nil }), !isStable(recent, \.secondaryWrist) {
             return nil
         }
+        guard let first = window.first, let last = window.last else { return nil }
 
         armed = false
         lastEmitWrist = wrist
@@ -125,6 +120,17 @@ nonisolated struct GestureSegmenter {
                               startSeconds: first.timeSeconds,
                               endSeconds: last.timeSeconds,
                               closedReason: .pause)
+    }
+
+    /// Whether a wrist keypath stays within `stillRadius` across the given frames.
+    private func isStable(_ frames: [FeatureVector],
+                          _ keyPath: KeyPath<FeatureVector, SIMD2<Float>?>) -> Bool {
+        let points = frames.compactMap { $0[keyPath: keyPath] }
+        guard points.count == frames.count, !points.isEmpty else { return false }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        return (xs.max()! - xs.min()!) < config.stillRadius
+            && (ys.max()! - ys.min()!) < config.stillRadius
     }
 
     /// Abandon any in-progress hold (e.g. capture stopped).
