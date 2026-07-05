@@ -13,15 +13,19 @@ struct TranslateScreen: View {
     @State private var model: TranslateViewModel
     @State private var showingDiagnostics = false
     @State private var showingPosePreview = false
+    @State private var showingEnroll = false
     private let diagnostics: CaptureDiagnosticsViewModel
     private let posePreview: PosePreviewViewModel
+    private let enroll: EnrollViewModel
 
     init(model: TranslateViewModel,
          diagnostics: CaptureDiagnosticsViewModel,
-         posePreview: PosePreviewViewModel) {
+         posePreview: PosePreviewViewModel,
+         enroll: EnrollViewModel) {
         _model = State(initialValue: model)
         self.diagnostics = diagnostics
         self.posePreview = posePreview
+        self.enroll = enroll
     }
 
     var body: some View {
@@ -43,6 +47,9 @@ struct TranslateScreen: View {
         .sheet(isPresented: $showingPosePreview) {
             PosePreviewScreen(model: posePreview)
         }
+        .sheet(isPresented: $showingEnroll) {
+            EnrollView(model: enroll)
+        }
     }
 
     private var header: some View {
@@ -56,6 +63,12 @@ struct TranslateScreen: View {
                 .padding(.vertical, 4)
                 .background(.quaternary, in: Capsule())
                 .accessibilityLabel("Device capability tier \(model.tier.badge)")
+            Button {
+                showingEnroll = true
+            } label: {
+                Image(systemName: "plus.rectangle.on.folder")
+            }
+            .accessibilityLabel("Enroll signs")
             Button {
                 showingPosePreview = true
             } label: {
@@ -163,7 +176,11 @@ private struct FlowText: View {
     let vm = TranslateViewModel(pipeline: MockCaptionPipeline(tier: tier), tier: tier)
     let capture = CaptureActor()
     let vision = VisionActor()
+    let store = ExemplarFileStore()
+    let lexicon = SignLexicon(entries: [])
     let diagnostics = CaptureDiagnosticsViewModel(capture: capture, audio: AudioActor(), vision: vision)
     let posePreview = PosePreviewViewModel(capture: capture, vision: vision)
-    return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview)
+    let recorder = EnrollmentRecorder(capture: capture, vision: vision, store: store)
+    let enroll = EnrollViewModel(lexicon: lexicon, recorder: recorder, store: store)
+    return TranslateScreen(model: vm, diagnostics: diagnostics, posePreview: posePreview, enroll: enroll)
 }

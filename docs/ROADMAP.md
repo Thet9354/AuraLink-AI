@@ -60,15 +60,31 @@ Locked design decisions (see also project memory):
 - **Deferred:** golden-fixture joint-RMSE regression (needs recorded clips — the enrollment
   tooling in Phase 5 produces these as serialized `PoseObservation` arrays).
 
-## Phase 3 — Segmentation + DTW/LM gloss
-- **Build:** motion-energy segmentation (`FusionActor`); `SignLexicon` + exemplars; DTW matcher
-  (Accelerate-vectorized, coarse-feature prune first); tiny on-device LM disambiguation;
-  `GlossGrammar` rules (gloss → fluent English); `InferenceCoordinator` admission control;
-  confidence gating → `.unknown` for out-of-vocab.
-- **APIs:** Accelerate, Core ML (LM), Metal.
-- **Gate:** top-1 accuracy on labeled segment fixtures; **reliability diagram** (calibration)
-  proving confidence bands are meaningful; glass→caption ≤ 220 ms (A17) / ≤ 350 ms (A14) p95;
-  OOV → `.unknown`; back-pressure test (throttle ANE → frames dropped, latency bounded).
+## Phase 3 — Segmentation + DTW/LM gloss  ✅ DONE (device accuracy pending)
+- **Built:** motion-energy `GestureSegmenter` (hysteresis open/close, pre-roll onset, twitch
+  reject, max-length force-close); `SignLexicon` + 218-sign v1 ASL catalog (`lexicon_v1.json`);
+  `SignExemplar` + layout-versioned `ExemplarFileStore` (one file per exemplar, complete file
+  protection); two-stage `SignMatcher` (duration + mean-frame prune → banded `DTW`; absolute
+  unknown gate + softmax relative confidence; authored-bigram nudge as the LM stand-in);
+  `GlossGrammar` (ME→"I", casing, question "?", honest "…" gaps); `SignTranslationPipeline`
+  (the real graph behind `CaptionProducing`, rolling sentence window, `segmentToCaption`
+  signpost); `EnrollmentRecorder` + Enroll UI (records the user's own exemplars — the only way
+  real DTW data enters, and the Phase 5 personalization foundation); feature multicast on
+  `VisionActor` (bounded per-consumer streams).
+- **APIs:** Foundation, CoreMedia, simd, os. (No Accelerate/Core ML yet — DTW at ~92-dim slice ×
+  ≤64 frames × pruned-to-25 candidates is sub-millisecond in scalar Swift; vectorize only if a
+  profile says so.)
+- **Design decision:** no separate `InferenceCoordinator` — DTW fires only on segment CLOSE
+  (≤ ~2/s by human cadence) and is cheap, so the serial pipeline actor IS the admission gate; a
+  coordinator would be machinery guarding a queue that never forms. Revisit with a learned encoder.
+- **Gate — code (met):** zero-warning Swift 6 build; 61 unit tests green — segmentation
+  (hysteresis/twitch/force-close), DTW (**zero for identical, invariant to 2× time-warp**,
+  monotonic in dissimilarity, validity penalty), matcher (correct sign / honest unknown / bigram
+  context flip / probability-shaped confidence), grammar, catalog decode, store round-trip +
+  layout-version skip.
+- **Gate — device (pending):** enroll a handful of signs, then translate them — top-1 accuracy on
+  your own exemplars; glass→caption ≤ 220 ms (A17) via the `segmentToCaption` signpost; OOV signs
+  render as "…". Reliability-diagram calibration once enough exemplars exist.
 
 ## Phase 4 — Audio pipeline + cross-modal haptics
 - **Build:** `AudioActor` DSP (vDSP VAD/mel/f0); on-device streaming ASR (preserves zero-network

@@ -50,6 +50,11 @@ actor VisionActor: PoseProducing {
     private var featureState = FeatureExtractor.State()
     private var featureRing = RingBuffer<FeatureVector>(capacity: 90)   // ~3 s at 30 Hz inference
 
+    // Feature multicast: AsyncStream is single-iteration, but features have multiple sequential
+    // consumers (translation pipeline, enrollment recorder). Each subscriber gets its own bounded
+    // stream; a terminated subscriber is pruned on its next yield.
+    private var featureSubscribers: [UUID: AsyncStream<FeatureVector>.Continuation] = [:]
+
     // Capture→pose latency samples (ms), bounded window for percentile computation.
     private var latencies: [Double] = []
     private let latencyWindow = 600
@@ -75,6 +80,24 @@ actor VisionActor: PoseProducing {
 
     /// Most recent feature vectors, oldest → newest (Phase 3 segmentation input).
     func recentFeatures() -> [FeatureVector] { featureRing.elements }
+
+    /// A private, bounded stream of feature vectors for one consumer. Latest-biased: if the
+    /// consumer lags, oldest buffered features are dropped (`.bufferingNewest`), never queued
+    /// unboundedly.
+    func subscribeFeatures() -> AsyncStream<FeatureVector> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: FeatureVector.self,
+                                                            bufferingPolicy: .bufferingNewest(8))
+        featureSubscribers[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeFeatureSubscriber(id) }
+        }
+        return stream
+    }
+
+    private func removeFeatureSubscriber(_ id: UUID) {
+        featureSubscribers[id] = nil
+    }
 
     func stats() -> VisionStats {
         let sorted = latencies.sorted()
@@ -128,6 +151,9 @@ actor VisionActor: PoseProducing {
         let (features, nextState) = FeatureExtractor.extract(from: observation, state: featureState)
         featureState = nextState
         featureRing.append(features)
+        for continuation in featureSubscribers.values {
+            continuation.yield(features)
+        }
 
         // Capture clock is the host time clock; wall latency = now − presentation timestamp.
         let latencyMs = (CMClockGetTime(CMClockGetHostTimeClock()).seconds - token.pts.seconds) * 1000
